@@ -15,6 +15,8 @@ import { Card, PlayerAvatar, SportBadge, StatTile } from "@/components/ui";
 
 export default async function PlayerPage(props: PageProps<"/player/[id]">) {
   const { id } = await props.params;
+  // Window the market board was showing when this link was followed.
+  const { range } = await props.searchParams;
   const player = await getPlayer(id);
   if (!player) notFound();
 
@@ -116,7 +118,11 @@ export default async function PlayerPage(props: PageProps<"/player/[id]">) {
               </div>
             ) : (
               <>
-                <PriceChart points={history} showFairValue />
+                <PriceChart
+                  points={history}
+                  showFairValue
+                  initialRange={typeof range === "string" ? range : undefined}
+                />
                 <p className="mt-3 text-xs leading-relaxed text-ink-400">
                   The solid line is what people are paying. The dashed line is what this
                   athlete&apos;s production alone is worth — the gap between them is the

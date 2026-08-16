@@ -24,8 +24,18 @@ export async function GET(request: Request) {
   }
 
   const started = Date.now();
+  const url = new URL(request.url);
+  // `slot` is only for testing a specific batch; the scheduled calls pass
+  // nothing and let the clock decide, so a cron firing late still lands in the
+  // slot it was scheduled for.
+  const slotParam = url.searchParams.get("slot");
+  const slot = slotParam == null ? undefined : Number(slotParam);
+
   try {
-    const result = await runBots();
+    const result = await runBots({
+      slot: Number.isFinite(slot) ? slot : undefined,
+      all: url.searchParams.get("all") === "1",
+    });
     return NextResponse.json({
       ok: true,
       ...result,

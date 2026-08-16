@@ -138,11 +138,24 @@ and two thirds. Full three-league ingest: ~105-120s, against a 300s cron cap.
   the position limit is 20% of depth and `e^0.2 ≈ 1.221`. Cheap, shallow
   listings hit that cap on a single run; value bots sell back once the premium
   passes 12%, which is what stops momentum running away.
-- **Two crons, deliberately separate**: `/api/cron/refresh` at 09:00 UTC and
-  `/api/cron/bots` at 15:00 UTC. Bots run after the refresh so they trade
-  against the day's new fundamentals, and a bot failure can never stop prices
-  updating. Hobby allows one run per day per job — intraday volatility would
-  need a paid plan or an external scheduler.
+- **Hobby allows 100 cron jobs per project, each capped at one run per day** —
+  not two jobs, which is what an earlier note here claimed. So spreading bot
+  trading across the day is a matter of *several* daily jobs at different hours,
+  not one frequent job. There are eight `/api/cron/bots` entries plus
+  `/api/cron/refresh` at 09:00 UTC. Hobby scheduling is per-hour accurate
+  (±59 min), which suits this — trades do not land at predictable clock times.
+- **Bots wake in slots, not all at once.** `SLOT_HOURS` in `lib/bots/identity.ts`
+  lists the eight hours; `botsForSlot()` wakes about three bots each time and
+  every bot trades in two slots. Firing all twelve together put a whole day of
+  movement into one instant, so the price chart showed a single vertical step.
+  The route derives its slot from the clock (`?slot=N` and `?all=1` are for
+  testing only), so a cron that fires 40 minutes late still runs its own slot.
+- **A server-prop control needs optimistic state.** The board's 1D/1W/1M buttons
+  read `changeWindow` from the server, and re-rendering takes 1.5-2s because the
+  server reads price history for every listing — so a click left the button
+  unlit and the control felt broken ("you have to click other locations"). Fixed
+  with a local `pickedWindow` + `useTransition` that wins until the prop catches
+  up. Any future server-driven toggle here needs the same treatment.
 - **The daily email sends nothing until three switches are on**: `RESEND_API_KEY`,
   `DIGEST_FROM` (a verified sender), and a per-user opt-in stored in
   `user_metadata.email_digest`. Absent means no, and a quiet day sends nothing

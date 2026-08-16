@@ -8,7 +8,7 @@
  */
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Player } from "@/lib/market/types";
-import { botRoster, botPassword } from "./identity";
+import { botRoster, botPassword, botsForSlot, currentSlot } from "./identity";
 import { decide, makeRng, type BotView } from "./strategies";
 
 export interface BotRunResult {
@@ -17,6 +17,8 @@ export interface BotRunResult {
   ordersPlaced: number;
   ordersRejected: number;
   volume: number;
+  /** Which trading slot ran, or "all" for a manual run. */
+  slot: number | string | null;
   log: string[];
 }
 
@@ -83,7 +85,16 @@ async function readBoard(url: string, anon: string): Promise<Player[]> {
   return out;
 }
 
-export async function runBots(seed = Date.now()): Promise<BotRunResult> {
+export interface RunOptions {
+  seed?: number;
+  /** Which trading slot to run. Defaults to whichever one the clock is in. */
+  slot?: number | null;
+  /** Ignore slots and wake every bot — for a manual run, never the cron. */
+  all?: boolean;
+}
+
+export async function runBots(options: RunOptions = {}): Promise<BotRunResult> {
+  const seed = options.seed ?? Date.now();
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   const result: BotRunResult = {
@@ -92,6 +103,7 @@ export async function runBots(seed = Date.now()): Promise<BotRunResult> {
     ordersPlaced: 0,
     ordersRejected: 0,
     volume: 0,
+    slot: null,
     log: [],
   };
   if (!url || !anon || !process.env.BOT_SECRET) {
@@ -111,8 +123,25 @@ export async function runBots(seed = Date.now()): Promise<BotRunResult> {
   }
   const change = changeMap(players);
 
-  const roster = botRoster();
+  // Only the bots whose slot this is. Waking all twelve at once is what made
+  // the chart a single vertical step instead of a day's trading.
+  const slot = options.slot ?? currentSlot();
+  const roster = options.all
+    ? botRoster()
+    : slot == null
+      ? []
+      : botsForSlot(slot);
+
+  result.slot = options.all ? "all" : slot;
   result.bots = roster.length;
+  if (roster.length === 0) {
+    result.log.push(
+      slot == null && !options.all
+        ? "before the first trading slot of the day — nothing to do"
+        : `no bots assigned to slot ${slot}`
+    );
+    return result;
+  }
 
   for (const bot of roster) {
     const rng = makeRng(seed + bot.index * 7919);

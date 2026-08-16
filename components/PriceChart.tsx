@@ -14,6 +14,8 @@ interface Props {
   /** Show the fair-value line as well as the market line. */
   showFairValue?: boolean;
   height?: number;
+  /** Window carried over from the market board, e.g. "1W". */
+  initialRange?: string;
 }
 
 /**
@@ -42,9 +44,19 @@ const TIME_RANGES = [
   { id: "ALL", label: "ALL", ms: Infinity },
 ] as const;
 
-export function PriceChart({ points: allPoints, showFairValue = true, height = 240 }: Props) {
+export function PriceChart({
+  points: allPoints,
+  showFairValue = true,
+  height = 240,
+  initialRange,
+}: Props) {
   const [hover, setHover] = useState<number | null>(null);
-  const [range, setRange] = useState<string>("ALL");
+  // Opens on whatever window was selected on the market board, so moving from
+  // the board to a player keeps looking at the same span of time instead of
+  // silently resetting to ALL.
+  const [range, setRange] = useState<string>(
+    initialRange && TIME_RANGES.some((r) => r.id === initialRange) ? initialRange : "ALL"
+  );
 
   const points = useMemo(() => {
     const window = TIME_RANGES.find((r) => r.id === range);

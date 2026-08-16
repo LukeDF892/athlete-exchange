@@ -73,3 +73,49 @@ export function botPassword(index: number): string {
 export function isBotUsername(username: string): boolean {
   return /^bot_(momentum|value|noise)_\d+$/.test(username);
 }
+
+/**
+ * When trading happens, in UTC hours.
+ *
+ * All twelve bots used to fire in one eight-second burst, which put a day's
+ * worth of movement into a single instant: the price chart showed one vertical
+ * step and nothing else, which is not what a market looks like.
+ *
+ * Vercel's Hobby plan caps each cron job at one run per day, but allows a
+ * hundred jobs — so spreading the day is a matter of scheduling several jobs at
+ * different hours rather than one frequent job. Each of these hours is its own
+ * entry in vercel.json.
+ *
+ * Hobby scheduling is only accurate to the hour (a job set for 14:00 fires
+ * somewhere in 14:00-14:59), which is a feature here: trades do not land at
+ * predictable clock times.
+ */
+export const SLOT_HOURS = [13, 15, 16, 18, 19, 21, 22, 23] as const;
+
+/**
+ * Which bots trade in a given slot.
+ *
+ * Each bot is active in two of the eight slots, and each slot wakes about three
+ * bots. Staggering by `(index + slot)` rather than by strategy means momentum
+ * and value bots are rarely awake together in the same slot — so a price gets
+ * pushed in one slot and argued with a few hours later, instead of both
+ * happening at once and cancelling out.
+ */
+export function botsForSlot(slot: number): BotIdentity[] {
+  return botRoster().filter((b) => (b.index + slot) % 4 === 0);
+}
+
+/**
+ * The slot that most recently began, or null before the first one of the day.
+ *
+ * Derived from the hour rather than from an exact time so a cron that fires 40
+ * minutes late still resolves to the slot it was scheduled for.
+ */
+export function currentSlot(now = new Date()): number | null {
+  const hour = now.getUTCHours();
+  let found: number | null = null;
+  SLOT_HOURS.forEach((h, i) => {
+    if (hour >= h) found = i;
+  });
+  return found;
+}

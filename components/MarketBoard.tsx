@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { MarketRow } from "@/lib/market/types";
 import {
@@ -92,6 +92,21 @@ export function MarketBoard({
   // it compares a $5 listing and a $400 one on the same footing; dollars
   // answers "what did this actually cost me", which matters once you hold it.
   const [changeUnit, setChangeUnit] = useState<"pct" | "abs">("pct");
+
+  /**
+   * Optimistic selection for the change window.
+   *
+   * `changeWindow` arrives from the server, so it only updates once the new
+   * render lands. `pickedWindow` is what the user just clicked, and wins until
+   * the server agrees — after which the prop takes over again, which is what
+   * keeps the Back button and a pasted URL honest.
+   */
+  const [pickedWindow, setPickedWindow] = useState<ChangeWindow | null>(null);
+  const [windowPending, startWindowTransition] = useTransition();
+  const activeWindow = windowPending && pickedWindow ? pickedWindow : changeWindow;
+  useEffect(() => {
+    if (pickedWindow && pickedWindow === changeWindow) setPickedWindow(null);
+  }, [changeWindow, pickedWindow]);
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -240,20 +255,33 @@ export function MarketBoard({
             ))}
           </div>
 
-          <div className="flex rounded-lg border border-ink-700 bg-ink-850 p-0.5">
+          <div
+            className={`flex rounded-lg border border-ink-700 bg-ink-850 p-0.5 transition-opacity ${
+              windowPending ? "opacity-60" : ""
+            }`}
+          >
             {CHANGE_WINDOWS.map((w) => (
               <button
                 key={w}
                 onClick={() => {
+                  // Select immediately. The window is a server prop, and
+                  // re-rendering it takes 1.5-2s because the server has to read
+                  // price history for every listing — so without this the
+                  // button stayed unlit after a click and the control felt
+                  // broken, which is exactly how it was reported: "you have to
+                  // click other locations".
+                  setPickedWindow(w);
                   const next = new URLSearchParams(searchParams.toString());
                   next.set("change", w);
                   // Server re-renders with only the selected window's data, so
                   // the payload does not grow as history accumulates.
-                  router.push(`${pathname}?${next.toString()}`, { scroll: false });
+                  startWindowTransition(() => {
+                    router.push(`${pathname}?${next.toString()}`, { scroll: false });
+                  });
                 }}
-                aria-pressed={changeWindow === w}
+                aria-pressed={activeWindow === w}
                 className={`rounded-md px-2 py-1.5 text-xs font-semibold uppercase transition-colors ${
-                  changeWindow === w ? "bg-ink-700 text-ink-50" : "text-ink-400 hover:text-ink-200"
+                  activeWindow === w ? "bg-ink-700 text-ink-50" : "text-ink-400 hover:text-ink-200"
                 }`}
               >
                 {w}
@@ -309,7 +337,9 @@ export function MarketBoard({
               return (
                 <li key={p.id}>
                   <Link
-                    href={`/player/${p.id}`}
+                    // Carries the board's window through, so the player's chart
+                    // opens on the same span you were just looking at.
+                    href={`/player/${p.id}?range=${activeWindow}`}
                     className="grid grid-cols-[1fr_auto] items-center gap-3 px-4 py-3 transition-colors hover:bg-ink-850 md:grid-cols-[1fr_88px_92px_92px_104px_88px]"
                   >
                     <div className="flex min-w-0 items-center gap-3">

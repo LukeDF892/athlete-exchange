@@ -8,6 +8,7 @@ import { InjuryIndex } from "../lib/providers/injuries.ts";
 import { recentFormFromDoc } from "../lib/providers/gamelog.ts";
 import { buildTeams } from "../lib/market/teams.ts";
 import { decide, makeRng, sharesForBudget } from "../lib/bots/strategies.ts";
+import { botRoster, botsForSlot, currentSlot, SLOT_HOURS } from "../lib/bots/identity.ts";
 import { positionLimit, quoteBuy } from "../lib/pricing/engine.ts";
 import type { Player } from "../lib/market/types.ts";
 
@@ -535,4 +536,48 @@ test("a bot will not buy past the position limit it already sits at", () => {
     !orders.some((o) => o.side === "buy"),
     "bought into a position that is already at the cap"
   );
+});
+
+test("bot trading is spread across the day, not fired all at once", () => {
+  const roster = botRoster();
+
+  // No slot should wake the whole roster — that is the behaviour this
+  // scheduling exists to stop, because it put a day of movement into one
+  // vertical step on the chart.
+  const perSlot = SLOT_HOURS.map((_, i) => botsForSlot(i));
+  for (const [i, bots] of perSlot.entries()) {
+    assert.ok(bots.length > 0, `slot ${i} wakes nobody`);
+    assert.ok(
+      bots.length < roster.length,
+      `slot ${i} wakes all ${roster.length} bots at once`
+    );
+  }
+
+  // Every bot trades at some point in the day, and more than once.
+  for (const bot of roster) {
+    const slots = perSlot.filter((s) => s.some((b) => b.index === bot.index)).length;
+    assert.ok(slots >= 2, `${bot.username} only trades in ${slots} slot(s)`);
+  }
+
+  // Slots are in ascending order, so "the slot the clock is in" is well defined.
+  const ascending = [...SLOT_HOURS].every((h, i, a) => i === 0 || h > a[i - 1]);
+  assert.ok(ascending, "slot hours must be sorted");
+});
+
+test("the current slot follows the clock and is absent before the first one", () => {
+  const at = (hour: number) => new Date(Date.UTC(2026, 7, 16, hour, 30));
+
+  // Before the first slot there is nothing to run rather than a wrap to the
+  // last slot of the day — otherwise a morning run would replay last night.
+  assert.equal(currentSlot(at(0)), null);
+  assert.equal(currentSlot(at(SLOT_HOURS[0] - 1)), null);
+
+  assert.equal(currentSlot(at(SLOT_HOURS[0])), 0);
+  assert.equal(currentSlot(at(SLOT_HOURS[SLOT_HOURS.length - 1])), SLOT_HOURS.length - 1);
+
+  // A cron that fires up to 59 minutes late still resolves to its own slot,
+  // which is what Hobby's per-hour scheduling precision requires.
+  const slotHour = SLOT_HOURS[2];
+  assert.equal(currentSlot(new Date(Date.UTC(2026, 7, 16, slotHour, 0))), 2);
+  assert.equal(currentSlot(new Date(Date.UTC(2026, 7, 16, slotHour, 59))), 2);
 });
