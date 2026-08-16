@@ -1,0 +1,8 @@
+node_modules
+.next
+.env.local
+data/snapshot.json
+.DS_Store
+next-env.d.ts
+.vercel
+.env*

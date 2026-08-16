@@ -1,0 +1,109 @@
+@import "tailwindcss";
+
+/*
+ * Athlete Exchange design system.
+ *
+ * Dark-first, because every trading surface people trust is dark and because
+ * price colors (green/red) read far better against near-black than against white.
+ * The palette is deliberately restrained: one accent, two semantic colors for
+ * up/down, and a lot of carefully spaced neutrals. Numbers are set in a tabular
+ * mono face so digits never shift as prices tick.
+ */
+
+@theme {
+  --color-ink-950: #06070a;
+  --color-ink-900: #0a0c11;
+  --color-ink-850: #0e1117;
+  --color-ink-800: #12161e;
+  --color-ink-750: #171c26;
+  --color-ink-700: #1e242f;
+  --color-ink-600: #2a3242;
+  --color-ink-500: #3d4757;
+  --color-ink-400: #5b6577;
+  --color-ink-300: #8a95a8;
+  --color-ink-200: #b9c2d0;
+  --color-ink-100: #e3e8ef;
+  --color-ink-50: #f6f8fb;
+
+  --color-up: #00d68f;
+  --color-up-dim: #0a3b30;
+  --color-down: #ff4d6a;
+  --color-down-dim: #3d1520;
+
+  --color-accent: #4c8dff;
+  --color-accent-dim: #14243f;
+
+  --color-nba: #f0803c;
+  --color-nhl: #56b8ff;
+  --color-mlb: #78c88c;
+  --color-warn: #e8b451;
+  --color-warn-dim: #3a2c12;
+
+  --font-mono:
+    ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Monaco, "Cascadia Mono", monospace;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  background: var(--color-ink-950);
+  color: var(--color-ink-100);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  /* Very subtle depth so large dark areas do not read as flat black. */
+  background-image:
+    radial-gradient(900px 500px at 15% -10%, rgba(76, 141, 255, 0.07), transparent 60%),
+    radial-gradient(700px 400px at 100% 0%, rgba(0, 214, 143, 0.045), transparent 55%);
+  background-attachment: fixed;
+}
+
+/* Digits must not reflow as prices update. */
+.tnum {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+/* Thin, unobtrusive scrollbars that match the surface. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-ink-600) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--color-ink-600);
+  border-radius: 999px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@keyframes flash-up {
+  0% { background-color: rgba(0, 214, 143, 0.22); }
+  100% { background-color: transparent; }
+}
+@keyframes flash-down {
+  0% { background-color: rgba(255, 77, 106, 0.22); }
+  100% { background-color: transparent; }
+}
+.flash-up { animation: flash-up 900ms ease-out; }
+.flash-down { animation: flash-down 900ms ease-out; }
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+.rise { animation: rise 380ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .flash-up, .flash-down, .rise { animation: none; }
+}

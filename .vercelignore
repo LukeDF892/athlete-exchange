@@ -1,0 +1,14 @@
+# Vercel falls back to .gitignore when this file is absent, which would exclude
+# data/snapshot.json — the fallback every signed-out visitor reads. Without it
+# the deployed landing page is empty for anyone who is not logged in, so the
+# snapshot has to ship even though it stays out of git.
+
+node_modules
+.next
+.git
+.env
+.env.*
+.DS_Store
+next-env.d.ts
+.vercel
+scripts/_probe.ts
