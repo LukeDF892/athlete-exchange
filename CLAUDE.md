@@ -301,6 +301,23 @@ the repo has no remote; email needs a Resend key (`RESEND_API_KEY` +
 - **Typechecks take 8-10 minutes.** Use `./node_modules/.bin/tsc --noEmit`
   rather than `npx tsc`. Run it to completion *before* deploying — using
   Vercel's remote build as a typechecker emails the user on every failure.
+- **The Supabase SQL editor has a confirmation dialog that swallows queries.**
+  Anything with `drop`, `alter` or `revoke` in it pops "Potential issue
+  detected" and *waits*. Clicking Run and walking away leaves the SQL unrun
+  while everything downstream reports success — twice this session a migration
+  looked applied and was not, and the symptom appeared minutes later as a
+  missing table. Always screenshot after clicking Run, and verify the change by
+  querying for it rather than by reading the banner.
+- **Adding a route needs `npx next typegen`.** `PageProps<"/games/[sport]">`
+  fails to typecheck until the generated route types are rebuilt, and the error
+  ("does not satisfy the constraint 'AppRoutes'") reads like a bad path rather
+  than a stale build.
+- **The shell's working directory drifts to the parent folder.** It happens
+  without a `cd`, and the parent is Core Control — so `npm test` fails to find
+  `data/snapshot.json` and reports the snapshot tests as broken, and
+  `vercel env ls` reports the wrong project. Two "failures" this session were
+  only this. Prefix commands with `cd` to the project when anything looks
+  inexplicably wrong.
 - **The clipboard is shared.** Migrations are applied by pasting into the
   Supabase SQL editor via the Chrome extension; the user copying anything
   mid-flow clobbers it. Always screenshot and verify the editor contents
