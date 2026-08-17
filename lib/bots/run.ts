@@ -165,10 +165,11 @@ export async function runBots(options: RunOptions = {}): Promise<BotRunResult> {
     try {
       const [{ data: profile }, { data: holdings }] = await Promise.all([
         client.from("profiles").select("cash_balance").maybeSingle(),
-        // Deliberately long-only: bots never short, and reading a negative
-        // position here would make decide() try to "sell" it, which opens a
-        // bigger short rather than closing anything.
-        client.from("holdings").select("player_id, shares").gt("shares", 0),
+        // Every position, including negative ones. Filtering to `> 0` hid any
+        // short a bot had accidentally opened, so it never covered — and a
+        // later "sell" against a position the bot could not see opened a
+        // *second* short on top.
+        client.from("holdings").select("player_id, shares").neq("shares", 0),
       ]);
 
       const view: BotView = {
@@ -178,7 +179,52 @@ export async function runBots(options: RunOptions = {}): Promise<BotRunResult> {
         cash: Number(profile?.cash_balance ?? 0),
       };
 
+      /**
+       * Close any short first, before anything else this bot does.
+       *
+       * Bots are meant to be long-only. They ended up holding five shorts
+       * anyway, because `execute_trade` turns a sell with no position into a
+       * short — so any drift between what a bot thought it held and what the
+       * database held (two slots overlapping, a position closed moments
+       * earlier) silently opened one. Covering here means such a position
+       * cannot survive, whatever caused it.
+       */
+      const shorts = [...view.held.entries()].filter(([, n]) => n < 0);
+      for (const [playerId, n] of shorts) {
+        const { error } = await client.rpc("execute_trade", {
+          p_player_id: playerId,
+          p_side: "buy",
+          p_shares: Math.abs(n),
+        });
+        if (error) {
+          result.ordersRejected++;
+          continue;
+        }
+        result.ordersPlaced++;
+        view.held.delete(playerId);
+        result.log.push(`${bot.username} cover ${Math.abs(n)} — bots do not hold shorts`);
+      }
+
       for (const order of decide(bot.strategy, view, rng)) {
+        /**
+         * Never sell more than is actually held at this instant.
+         *
+         * `decide()` works from a snapshot taken before the first order; by the
+         * time a later order runs, an earlier one has already moved the
+         * position. Selling into that gap is exactly how an unintended short
+         * gets opened, so the size is re-checked against the live row.
+         */
+        if (order.side === "sell") {
+          const { data: cur } = await client
+            .from("holdings")
+            .select("shares")
+            .eq("player_id", order.playerId)
+            .maybeSingle();
+          const heldNow = Number(cur?.shares ?? 0);
+          if (heldNow <= 0) continue;
+          order.shares = Math.min(order.shares, heldNow);
+        }
+
         const { data, error } = await client.rpc("execute_trade", {
           p_player_id: order.playerId,
           p_side: order.side,
