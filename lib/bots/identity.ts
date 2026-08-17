@@ -27,11 +27,12 @@ export interface BotIdentity {
 }
 
 /**
- * Thirty bots, weighted toward value.
+ * Fifty bots.
  *
  * Started at twelve, which moved prices but thinly — a slot woke three bots and
- * a quiet listing could go days untouched. Thirty wakes seven or eight per slot,
- * so the board ticks over continuously rather than in visible bursts.
+ * a quiet listing could go days untouched. Fifty wakes eight or nine per slot
+ * across seventeen slots, so roughly twenty-five trades land every hour and a
+ * listing outside the top hundred still gets touched.
  *
  * The mix was value-heavy to fix an early 158-buys-to-12-sells imbalance, and
  * overshot: with value bots the largest cohort, the market's dominant reflex
@@ -41,9 +42,9 @@ export interface BotIdentity {
  * way to press an overpriced listing without needing to own it first.
  */
 const ROSTER: Strategy[] = [
-  ...Array<Strategy>(12).fill("momentum"),
-  ...Array<Strategy>(11).fill("value"),
-  ...Array<Strategy>(7).fill("noise"),
+  ...Array<Strategy>(20).fill("momentum"),
+  ...Array<Strategy>(18).fill("value"),
+  ...Array<Strategy>(12).fill("noise"),
 ];
 
 export function botRoster(): BotIdentity[] {
@@ -88,7 +89,7 @@ export function isBotUsername(username: string): boolean {
  * Eight slots clustered between 13:00 and 23:00 left a fourteen-hour dead zone
  * and made trading feel like bursts: a quarter of the roster fired at once,
  * then nothing for hours. Seventeen hourly slots, each waking a sixth of the
- * roster, turns that into a handful of trades most hours. The 04:00-10:00 gap
+ * roster, turns that into a steady trickle most hours. The 04:00-10:00 gap
  * is deliberate — that is the small hours in Atlantic time, and a market that
  * is quiet overnight reads as a market rather than a machine.
  *
@@ -103,11 +104,11 @@ export const SLOT_HOURS = [
 /**
  * Which bots trade in a given slot.
  *
- * Each bot is active in two of the eight slots, and each slot wakes roughly a
- * quarter of the roster. Staggering by `(index + slot)` rather than by strategy means momentum
- * and value bots are rarely awake together in the same slot — so a price gets
- * pushed in one slot and argued with a few hours later, instead of both
- * happening at once and cancelling out.
+ * Each bot is active in two or three of the seventeen slots, and each slot wakes
+ * a sixth of the roster. Staggering by `(index + slot)` rather than by strategy
+ * means momentum and value bots are rarely awake together in the same slot — so
+ * a price gets pushed in one slot and argued with a few hours later, instead of
+ * both happening at once and cancelling out.
  */
 export function botsForSlot(slot: number): BotIdentity[] {
   return botRoster().filter((b) => (b.index + slot) % 6 === 0);
