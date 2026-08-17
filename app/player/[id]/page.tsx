@@ -6,12 +6,63 @@ import { WatchButton } from "@/components/WatchButton";
 import { RetirementBanner } from "@/components/RetirementBanner";
 import { TradeHistory } from "@/components/TradeHistory";
 import { marketPremiumPct } from "@/lib/market/types";
-import { money, signedPct, timeAgo, trendClass } from "@/lib/format";
+import { money, signedMoney, signedPct, timeAgo, trendClass } from "@/lib/format";
 import { PriceChart } from "@/components/PriceChart";
 import { CareerValueChart } from "@/components/CareerValueChart";
 import { TradePanel } from "@/components/TradePanel";
 import { StatTables } from "@/components/StatTables";
 import { Card, PlayerAvatar, SportBadge, StatTile } from "@/components/ui";
+
+/**
+ * What you already hold in this athlete.
+ *
+ * Shown above the trade ticket rather than inside it, because it answers a
+ * different question: the ticket is about what you are about to do, this is
+ * about what you have already done.
+ */
+function YourPosition({
+  shares,
+  avgCost,
+  marketPrice,
+}: {
+  shares: number;
+  avgCost: number;
+  marketPrice: number;
+}) {
+  const value = shares * marketPrice;
+  const basis = shares * avgCost;
+  const pnl = value - basis;
+  const pct = basis > 0 ? (pnl / basis) * 100 : 0;
+
+  return (
+    <div className="rounded-xl border border-accent/25 bg-ink-850/70 p-4">
+      <div className="flex items-baseline justify-between">
+        <h2 className="text-sm font-semibold text-ink-100">Your position</h2>
+        <span className="tnum text-sm font-bold text-ink-50">
+          {shares.toLocaleString()} {shares === 1 ? "share" : "shares"}
+        </span>
+      </div>
+
+      <dl className="mt-3 space-y-1.5 text-xs">
+        <div className="flex items-center justify-between">
+          <dt className="text-ink-400">Average cost</dt>
+          <dd className="tnum text-ink-200">{money(avgCost)}</dd>
+        </div>
+        <div className="flex items-center justify-between">
+          <dt className="text-ink-400">Market value</dt>
+          <dd className="tnum text-ink-100">{money(value)}</dd>
+        </div>
+        <div className="my-2 border-t border-ink-750" />
+        <div className="flex items-center justify-between">
+          <dt className="text-ink-400">Unrealized P&L</dt>
+          <dd className={`tnum text-sm font-bold ${trendClass(pnl)}`}>
+            {signedMoney(pnl)} <span className="text-xs font-medium">({signedPct(pct)})</span>
+          </dd>
+        </div>
+      </dl>
+    </div>
+  );
+}
 
 export default async function PlayerPage(props: PageProps<"/player/[id]">) {
   const { id } = await props.params;
@@ -191,6 +242,16 @@ export default async function PlayerPage(props: PageProps<"/player/[id]">) {
             initialWatching={watchedIds.includes(id)}
             disabled={!trading.tradingEnabled}
           />
+          {/* Your own stake, before the order ticket — it was previously only a
+              small line inside the panel, so "how many do I own?" meant
+              hunting for it or opening the portfolio. */}
+          {trading.sharesHeld > 0 && (
+            <YourPosition
+              shares={trading.sharesHeld}
+              avgCost={trading.avgCost}
+              marketPrice={player.marketPrice}
+            />
+          )}
           <TradePanel
             player={player}
             tradingEnabled={trading.tradingEnabled}

@@ -27,6 +27,7 @@ import { mapPool } from "@/lib/providers/http";
 import { NhlProvider } from "@/lib/providers/nhl";
 import { nbaProvider } from "@/lib/providers/espn";
 import { mlbProvider } from "@/lib/providers/mlb";
+import { nflProvider } from "@/lib/providers/nfl";
 import type { RawPlayer, SportsProvider } from "@/lib/providers/types";
 import { fetchAllNews, matchPlayers } from "@/lib/news/rss";
 import type { NewsItem, Player } from "@/lib/market/types";
@@ -239,6 +240,16 @@ async function carryForward(sports: Sport[]): Promise<Player[]> {
 export interface IngestOptions {
   /** Upsert into Supabase as well as building the snapshot. */
   push?: boolean;
+  /**
+   * Restrict the run to these leagues.
+   *
+   * A four-league ingest takes about 340 seconds, which is over the 300-second
+   * ceiling a scheduled function gets — so the daily refresh runs one league
+   * per cron rather than all four at once. Leagues left out are carried forward
+   * exactly as a failed league is, and the database push is an upsert, so a
+   * partial run never removes anything.
+   */
+  sports?: Sport[];
 }
 
 export interface IngestResult {
@@ -254,6 +265,9 @@ export async function runIngest(options: IngestOptions = {}): Promise<IngestResu
   const push = options.push ?? false;
   const started = Date.now();
 
+  const wanted = options.sports;
+  const runs = (s: Sport) => !wanted || wanted.includes(s);
+
   const nhl = new NhlProvider();
   /**
    * One league failing must not take the other two with it.
@@ -264,14 +278,18 @@ export async function runIngest(options: IngestOptions = {}): Promise<IngestResu
    * Rate limiting is routine on these unofficial feeds, so the daily refresh
    * has to survive it.
    */
+  const skip = async (): Promise<RawPlayer[]> => [];
   const settled = await Promise.allSettled([
-    fetchSport(nhl, PER_SPORT_LIMIT),
-    fetchSport(nbaProvider, PER_SPORT_LIMIT),
-    fetchSport(mlbProvider, PER_SPORT_LIMIT),
+    runs("nhl") ? fetchSport(nhl, PER_SPORT_LIMIT) : skip(),
+    runs("nba") ? fetchSport(nbaProvider, PER_SPORT_LIMIT) : skip(),
+    runs("mlb") ? fetchSport(mlbProvider, PER_SPORT_LIMIT) : skip(),
+    runs("nfl") ? fetchSport(nflProvider, PER_SPORT_LIMIT) : skip(),
   ]);
-  const [nhlRaw, nbaRaw, mlbRaw] = settled.map((r) => (r.status === "fulfilled" ? r.value : []));
+  const [nhlRaw, nbaRaw, mlbRaw, nflRaw] = settled.map((r) =>
+    r.status === "fulfilled" ? r.value : []
+  );
   const failedSports: Sport[] = [];
-  (["nhl", "nba", "mlb"] as const).forEach((s, i) => {
+  (["nhl", "nba", "mlb", "nfl"] as const).forEach((s, i) => {
     const r = settled[i];
     if (r.status === "rejected") {
       failedSports.push(s);
@@ -280,7 +298,7 @@ export async function runIngest(options: IngestOptions = {}): Promise<IngestResu
       }`);
     }
   });
-  const raws = [...nbaRaw, ...nhlRaw, ...mlbRaw];
+  const raws = [...nbaRaw, ...nhlRaw, ...mlbRaw, ...nflRaw];
   if (raws.length === 0) {
     // Nothing was fetched at all, so there is nothing to calibrate against and
     // any output would be worse than yesterday's.
@@ -311,7 +329,7 @@ export async function runIngest(options: IngestOptions = {}): Promise<IngestResu
   // Injuries, fetched once per league and matched by name — the feed gives no
   // athlete ids, so a miss means no discount rather than a wrong one.
   const injuryMaps = await Promise.all(
-    (["nba", "nhl", "mlb"] as const).map(async (s) => [s, await fetchInjuries(s)] as const)
+    (["nba", "nhl", "mlb", "nfl"] as const).map(async (s) => [s, await fetchInjuries(s)] as const)
   );
   const injuries = new Map(injuryMaps);
   let matched = 0;
@@ -395,13 +413,20 @@ export async function runIngest(options: IngestOptions = {}): Promise<IngestResu
   // overwrite and is what signed-out visitors read — rewriting it now would
   // erase that league from the public board. So carry the previous listings
   // forward, stale but present, which is strictly better than missing.
-  if (failedSports.length > 0) {
-    const carried = await carryForward(failedSports);
+  const skipped = (["nhl", "nba", "mlb", "nfl"] as const).filter((s) => !runs(s));
+  const missing = [...new Set([...failedSports, ...skipped])];
+  if (missing.length > 0) {
+    // Deduped against what this run already produced. The draft step is not
+    // scoped by league, so a single-league run rebuilds every prospect while
+    // the carry-forward also restores them — which put 123 duplicate ids into
+    // the snapshot the first time a scoped run happened.
+    const present = new Set(players.map((p) => p.id));
+    const carried = (await carryForward(missing)).filter((p) => !present.has(p.id));
     if (carried.length > 0) {
       players.push(...carried);
       players.sort((a, b) => b.fairValue - a.fairValue);
       console.log(
-        `[snapshot] carried ${carried.length} listings forward for ${failedSports.join(", ")}`
+        `[snapshot] carried ${carried.length} listings forward for ${missing.join(", ")}`
       );
     }
   }
@@ -424,7 +449,9 @@ export async function runIngest(options: IngestOptions = {}): Promise<IngestResu
   console.log(
     `\nWrote data/snapshot.json — ${players.length} players (${bySport("nba")} NBA, ${bySport(
       "nhl"
-    )} NHL), ${news.length} stories in ${((Date.now() - started) / 1000).toFixed(1)}s`
+    )} NHL, ${bySport("mlb")} MLB, ${bySport("nfl")} NFL), ${news.length} stories in ${(
+      (Date.now() - started) / 1000
+    ).toFixed(1)}s`
   );
   console.log("Top of the board:");
   for (const p of [...players].sort((a, b) => b.marketPrice - a.marketPrice).slice(0, 8)) {

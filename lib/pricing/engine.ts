@@ -23,7 +23,7 @@
  * round-trip a trade for free profit.
  */
 
-export type Sport = "nba" | "nhl" | "mlb";
+export type Sport = "nba" | "nhl" | "mlb" | "nfl";
 
 /** Normalized production line for one player over some window of games. */
 export interface StatLine {
@@ -61,6 +61,26 @@ export interface StatLine {
   pitcherStrikeouts?: number;
   saves?: number;
   isPitcher?: boolean;
+  // Football. Kept as season totals like everything else, so `per()` works.
+  passingYards?: number;
+  passingTouchdowns?: number;
+  passingInterceptions?: number;
+  completionPct?: number;
+  rushingYards?: number;
+  rushingTouchdowns?: number;
+  receptions?: number;
+  receivingYards?: number;
+  receivingTouchdowns?: number;
+  tackles?: number;
+  sacks?: number;
+  defensiveInterceptions?: number;
+  forcedFumbles?: number;
+  passesDefended?: number;
+  fieldGoalsMade?: number;
+  fieldGoalPctKicking?: number;
+  kickingPoints?: number;
+  puntAverage?: number;
+  puntsInside20?: number;
 }
 
 export interface FairValueInput {
@@ -104,7 +124,14 @@ export type PositionGroup =
   | "nhl-defense"
   | "nhl-goalie"
   | "mlb-batter"
-  | "mlb-pitcher";
+  | "mlb-pitcher"
+  | "nfl-qb"
+  | "nfl-rb"
+  | "nfl-receiver"
+  | "nfl-front7"
+  | "nfl-secondary"
+  | "nfl-kicker"
+  | "nfl-punter";
 
 export function positionGroup(
   sport: Sport,
@@ -112,6 +139,7 @@ export function positionGroup(
   isGoalie = false
 ): PositionGroup {
   const p = (position ?? "").toUpperCase();
+  if (sport === "nfl") return nflGroup(p);
   if (sport === "nba") {
     if (p.includes("C")) return "nba-center";
     if (p.includes("G")) return "nba-guard";
@@ -135,12 +163,149 @@ export function positionGroup(
  * `productionScore` turns it into a cross-position number using league
  * calibration, because the raw scales legitimately differ between jobs.
  */
+/**
+ * Football positions, from the roster's own abbreviation.
+ *
+ * The roster endpoint is the source of truth here, unlike baseball where the
+ * stat block had to settle it. That matters because ESPN's stat categories are
+ * actively misleading for linemen: a Pro Bowl centre comes back with a
+ * `passing` category first and zeroes in it, so trusting category order would
+ * price him as a quarterback who never throws.
+ *
+ * Offensive linemen and long snappers are not grouped here at all — see
+ * `isUnpriceablePosition`.
+ */
+function nflGroup(p: string): PositionGroup {
+  if (p === "QB") return "nfl-qb";
+  if (p === "RB" || p === "FB" || p === "HB") return "nfl-rb";
+  if (p === "WR" || p === "TE") return "nfl-receiver";
+  if (p === "PK" || p === "K") return "nfl-kicker";
+  if (p === "P") return "nfl-punter";
+  if (p === "CB" || p === "S" || p === "SAF" || p === "FS" || p === "SS" || p === "DB") {
+    return "nfl-secondary";
+  }
+  // DE, DT, NT, LB, EDGE, MLB, OLB and anything else defensive.
+  return "nfl-front7";
+}
+
+/**
+ * Positions this market cannot honestly price.
+ *
+ * Offensive linemen have no public box-score production — no yards, no
+ * tackles, nothing an open feed records. Scoring them on the categories ESPN
+ * returns would give every one of them zero and park roughly five hundred
+ * players on the $4 floor: not a valuation, just noise that makes the board
+ * worse. Long snappers are the same story.
+ *
+ * So they are not listed. It is the same rule already applied to a player with
+ * no completed season — if there is no production to price, there is no
+ * listing. Fantasy football draws the line in exactly the same place, so it
+ * should not surprise anyone who follows the sport.
+ */
+export function isUnpriceablePosition(sport: Sport, position: string | null | undefined): boolean {
+  if (sport !== "nfl") return false;
+  const p = (position ?? "").toUpperCase();
+  return ["OT", "OG", "G", "C", "OL", "T", "LS"].includes(p);
+}
+
 export function rawProductionScore(
   group: PositionGroup,
   line: StatLine | null | undefined
 ): number | null {
   if (!line || !line.gamesPlayed || line.gamesPlayed <= 0) return null;
   const per = (v: number | undefined) => (v ?? 0) / line.gamesPlayed;
+
+  // ---------------------------------------------------------------------
+  // Football
+  //
+  // Scored per game, like every other sport here, but football's seventeen-game
+  // season makes each game a far larger share of the evidence than a game of
+  // baseball or basketball — which is why the NFL gets its own shrinkage
+  // constants further down rather than sharing the others'.
+  // ---------------------------------------------------------------------
+  if (group === "nfl-qb") {
+    // Volume first, efficiency as a modifier — the same lesson the NBA scoring
+    // learned. A game manager on a run-heavy team should not outrank a
+    // quarterback carrying an offence just because he avoids mistakes.
+    const ypg = per(line.passingYards);
+    const yardScore = clamp(ypg / 300, 0, 1.15) * 34;
+    const tdScore = clamp(per(line.passingTouchdowns) / 2.2, 0, 1.2) * 24;
+    // Interceptions are the one genuinely negative event at the position.
+    const intPenalty = clamp(per(line.passingInterceptions) / 1.2, 0, 1.5) * 12;
+    const acc = line.completionPct ?? 0;
+    const accScore = clamp((acc - 55) / 15, 0, 1) * 14;
+    // Mobile quarterbacks are worth real points; this is what separates the
+    // modern position from the pocket version of it.
+    const rushScore =
+      clamp(per(line.rushingYards) / 45, 0, 1) * 10 +
+      clamp(per(line.rushingTouchdowns) / 0.5, 0, 1) * 6;
+    return Math.max(0, yardScore + tdScore + accScore + rushScore - intPenalty);
+  }
+
+  if (group === "nfl-rb") {
+    const rushYards = clamp(per(line.rushingYards) / 100, 0, 1.2) * 32;
+    const rushTd = clamp(per(line.rushingTouchdowns) / 0.8, 0, 1.2) * 20;
+    // Receiving backs are systematically undervalued by rushing yards alone,
+    // and in the current game they are often the more valuable player.
+    const recv =
+      clamp(per(line.receptions) / 4, 0, 1) * 12 +
+      clamp(per(line.receivingYards) / 35, 0, 1) * 10 +
+      clamp(per(line.receivingTouchdowns) / 0.4, 0, 1) * 6;
+    const workload = clamp(line.gamesPlayed / 15, 0, 1) * 8;
+    return Math.max(0, rushYards + rushTd + recv + workload);
+  }
+
+  if (group === "nfl-receiver") {
+    const yards = clamp(per(line.receivingYards) / 90, 0, 1.2) * 34;
+    const catches = clamp(per(line.receptions) / 6, 0, 1.1) * 20;
+    const tds = clamp(per(line.receivingTouchdowns) / 0.7, 0, 1.2) * 22;
+    // Tight ends and slot receivers accumulate differently from outside
+    // receivers, but they share a group because their box score is the same
+    // shape; calibration against their own group settles the rest.
+    const workload = clamp(line.gamesPlayed / 15, 0, 1) * 8;
+    return Math.max(0, yards + catches + tds + workload);
+  }
+
+  if (group === "nfl-front7") {
+    // Sacks are the rare defensive event that is both individual and
+    // game-changing, so they carry the most weight per unit.
+    const sackScore = clamp(per(line.sacks) / 0.7, 0, 1.25) * 34;
+    const tackleScore = clamp(per(line.tackles) / 6, 0, 1.1) * 24;
+    const turnovers =
+      clamp(per(line.forcedFumbles) / 0.15, 0, 1) * 12 +
+      clamp(per(line.defensiveInterceptions) / 0.15, 0, 1) * 8;
+    const workload = clamp(line.gamesPlayed / 15, 0, 1) * 8;
+    return Math.max(0, sackScore + tackleScore + turnovers + workload);
+  }
+
+  if (group === "nfl-secondary") {
+    // Defensive backs are measured on takeaways rather than sacks. Tackles
+    // matter less here than in the front seven — a cornerback making many
+    // tackles is often a cornerback being thrown at.
+    const intScore = clamp(per(line.defensiveInterceptions) / 0.25, 0, 1.2) * 30;
+    const pdScore = clamp(per(line.passesDefended) / 1.1, 0, 1.15) * 22;
+    const tackleScore = clamp(per(line.tackles) / 5.5, 0, 1) * 18;
+    const extras =
+      clamp(per(line.forcedFumbles) / 0.12, 0, 1) * 8 + clamp(per(line.sacks) / 0.3, 0, 1) * 6;
+    const workload = clamp(line.gamesPlayed / 15, 0, 1) * 8;
+    return Math.max(0, intScore + pdScore + tackleScore + extras + workload);
+  }
+
+  if (group === "nfl-kicker") {
+    const kickPoints = clamp(per(line.kickingPoints) / 8, 0, 1.15) * 40;
+    const fgAccuracy = clamp(((line.fieldGoalPctKicking ?? 0) - 70) / 25, 0, 1) * 30;
+    const fgVolume = clamp(per(line.fieldGoalsMade) / 1.8, 0, 1) * 18;
+    const workload = clamp(line.gamesPlayed / 15, 0, 1) * 6;
+    return Math.max(0, kickPoints + fgAccuracy + fgVolume + workload);
+  }
+
+  if (group === "nfl-punter") {
+    // Net average and pinning the opponent deep are the whole job.
+    const avg = clamp(((line.puntAverage ?? 0) - 38) / 12, 0, 1) * 48;
+    const inside20 = clamp(per(line.puntsInside20) / 2, 0, 1) * 34;
+    const workload = clamp(line.gamesPlayed / 15, 0, 1) * 8;
+    return Math.max(0, avg + inside20 + workload);
+  }
 
   if (group === "mlb-pitcher") {
     // Pitchers are scored on run prevention, and the two headline numbers run
@@ -261,6 +426,17 @@ const FALLBACK_GROUPS: Record<PositionGroup, GroupCalibration> = {
   "nhl-goalie": { median: 30, elite: 64 },
   "mlb-batter": { median: 45, elite: 88 },
   "mlb-pitcher": { median: 40, elite: 85 },
+  "nfl-qb": { median: 30, elite: 85 },
+  "nfl-rb": { median: 22, elite: 70 },
+  "nfl-receiver": { median: 20, elite: 72 },
+  "nfl-front7": { median: 20, elite: 68 },
+  "nfl-secondary": { median: 22, elite: 66 },
+  // Kickers and punters were one group to begin with, and it repeated the
+  // defenceman mistake exactly: two unrelated jobs sharing one median, which
+  // sat between them and left every kicker above it. The median kicker came out
+  // at $115 — more than triple the median receiver.
+  "nfl-kicker": { median: 45, elite: 80 },
+  "nfl-punter": { median: 35, elite: 70 },
 };
 
 /**
@@ -370,6 +546,31 @@ const REPLACEMENT_SCORE = 20;
  */
 const RELIABILITY_K = { recent: 4, season: 10, career: 15 } as const;
 
+/**
+ * Football needs its own constants, because a season is seventeen games.
+ *
+ * The values above are tuned for sports that play 82 or 162 times. Applying
+ * them to the NFL would regress a *complete, healthy season* — every game a
+ * player was available for — as though it were a third of the evidence it is:
+ * at k=10, seventeen games is trusted 63%, so the best season a footballer can
+ * physically produce would be permanently discounted toward replacement level.
+ *
+ * These are scaled to the same reliability the other sports get from a full
+ * season: seventeen games at k=4 is 81%, which is about what 70 NBA games at
+ * k=10 comes to.
+ */
+const NFL_RELIABILITY_K = { recent: 2, season: 4, career: 8 } as const;
+
+interface ReliabilityK {
+  recent: number;
+  season: number;
+  career: number;
+}
+
+function reliabilityK(sport: Sport): ReliabilityK {
+  return sport === "nfl" ? NFL_RELIABILITY_K : RELIABILITY_K;
+}
+
 /** Empirical-Bayes shrinkage of a raw score toward replacement level. */
 export function shrinkToReplacement(score: number, gamesPlayed: number, k: number): number {
   const gp = Math.max(gamesPlayed, 0);
@@ -391,9 +592,10 @@ export function fairValue(input: FairValueInput): number {
       scores.push({ score: shrinkToReplacement(s, line.gamesPlayed, k), weight });
     }
   };
-  push(input.recent, WINDOW_WEIGHTS.recent, RELIABILITY_K.recent, "recent");
-  push(input.season, WINDOW_WEIGHTS.season, RELIABILITY_K.season, "season");
-  push(input.career, WINDOW_WEIGHTS.career, RELIABILITY_K.career, "career");
+  const k = reliabilityK(input.sport);
+  push(input.recent, WINDOW_WEIGHTS.recent, k.recent, "recent");
+  push(input.season, WINDOW_WEIGHTS.season, k.season, "season");
+  push(input.career, WINDOW_WEIGHTS.career, k.career, "career");
 
   if (scores.length === 0) return PRICE_FLOOR;
 

@@ -4,6 +4,7 @@ import type { Sport } from "@/lib/pricing/engine";
 
 const SPORT_STYLE: Record<Sport, { color: string; background: string }> = {
   nba: { color: "var(--color-nba)", background: "rgba(240,128,60,0.12)" },
+  nfl: { color: "var(--color-nfl)", background: "rgba(120,160,235,0.12)" },
   nhl: { color: "var(--color-nhl)", background: "rgba(86,184,255,0.12)" },
   mlb: { color: "var(--color-mlb)", background: "rgba(120,200,140,0.12)" },
 };

@@ -1,10 +1,10 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "crons": [
-    {
-      "path": "/api/cron/refresh",
-      "schedule": "0 9 * * *"
-    },
+    { "path": "/api/cron/refresh?sport=nba", "schedule": "0 7 * * *" },
+    { "path": "/api/cron/refresh?sport=nhl", "schedule": "0 8 * * *" },
+    { "path": "/api/cron/refresh?sport=mlb", "schedule": "0 9 * * *" },
+    { "path": "/api/cron/refresh?sport=nfl", "schedule": "0 10 * * *" },
     { "path": "/api/cron/bots", "schedule": "0 13 * * *" },
     { "path": "/api/cron/bots", "schedule": "0 15 * * *" },
     { "path": "/api/cron/bots", "schedule": "0 16 * * *" },

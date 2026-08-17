@@ -39,6 +39,7 @@ export default async function MarketPage(props: PageProps<"/">) {
   // Written before baseball existed, and left saying "565 NBA · 905 NHL" while
   // MLB quietly made up the majority of the board.
   const mlb = players.filter((p) => p.sport === "mlb").length;
+  const nfl = players.filter((p) => p.sport === "nfl").length;
   const priciest = [...players].sort((a, b) => b.marketPrice - a.marketPrice)[0] as Player;
   const changes = await getPriceChanges(players, changeWindow);
   const indexPct = marketIndexPct(players);
@@ -61,7 +62,7 @@ export default async function MarketPage(props: PageProps<"/">) {
         <StatTile
           label="Listed athletes"
           value={String(players.length)}
-          hint={`${nba} NBA · ${nhl} NHL · ${mlb} MLB`}
+          hint={`${nfl} NFL · ${nba} NBA · ${nhl} NHL · ${mlb} MLB`}
         />
         <StatTile label="Market cap" value={money(totalCap, { compact: true })} hint="notional" />
         <StatTile

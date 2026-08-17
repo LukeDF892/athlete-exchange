@@ -36,6 +36,25 @@ const ELITE_PERCENTILE = 0.975;
 const MIN_GAMES: Record<StatWindow, number> = { recent: 3, season: 20, career: 40 };
 
 /**
+ * Football's thresholds, because a season is seventeen games.
+ *
+ * The numbers above are tuned for sports that play 82 or 162 times, and
+ * applying them to the NFL does not merely bias the result — it disables
+ * calibration entirely. No footballer can reach 20 games in a season, so every
+ * NFL group qualified nobody, fell through to its hardcoded fallback, and got
+ * priced against a guess while the other three leagues were measured against
+ * their real distributions. Nothing errored; the anchors were simply invented.
+ *
+ * Scaled to the same share of a season the others ask for: 8 of 17 games is
+ * about what 20 of 82 is.
+ */
+const NFL_MIN_GAMES: Record<StatWindow, number> = { recent: 2, season: 8, career: 24 };
+
+function minGames(sport: Sport, window: StatWindow): number {
+  return sport === "nfl" ? NFL_MIN_GAMES[window] : MIN_GAMES[window];
+}
+
+/**
  * Measure what a typical and an elite season look like at each position, from
  * the league as it actually is, for each stat window independently.
  *
@@ -67,7 +86,7 @@ export function calibrateLeague(subjects: CalibrationSubject[]): Calibration {
       const raw = rawProductionScore(group, line);
       // Fringe samples would drag the median down and inflate everyone above.
       if (raw == null || raw <= 0) continue;
-      if ((line?.gamesPlayed ?? 0) < MIN_GAMES[window]) continue;
+      if ((line?.gamesPlayed ?? 0) < minGames(s.sport, window)) continue;
 
       const list = byGroup.get(group);
       if (list) list.push(raw);

@@ -23,7 +23,10 @@ import type { GameLogEntry } from "./types";
 const SITE_ROOT = "https://site.web.api.espn.com/apis/common/v3/sports";
 
 /** How many games count as "recent". */
-export const RECENT_GAMES = { nba: 10, mlb: 15 } as const;
+export const RECENT_GAMES = { nba: 10, mlb: 15, nfl: 5 } as const;
+
+/** Leagues with a per-game log on this endpoint. */
+export type LogSport = keyof typeof RECENT_GAMES;
 
 export interface GamelogDoc {
   names?: string[];
@@ -60,7 +63,9 @@ interface Game {
 
 function num(v: string | undefined): number | null {
   if (v == null) return null;
-  const t = v.trim();
+  // Thousands separators appear once totals reach four digits; `Number("1,024")`
+  // is NaN, which would drop the stat entirely rather than obviously breaking.
+  const t = v.trim().replace(/,/g, "");
   // ESPN writes an absent stat as "-", and a leading-dot average as ".290".
   if (t === "" || t === "-" || t === "--") return null;
   const n = Number(t);
@@ -70,7 +75,7 @@ function num(v: string | undefined): number | null {
 /** "8-18" → [8, 18]. Used for made-attempted pairs. */
 function pair(v: string | undefined): [number, number] | null {
   if (!v) return null;
-  const parts = v.split("-").map((p) => Number(p.trim()));
+  const parts = v.split("-").map((p) => Number(p.trim().replace(/,/g, "")));
   if (parts.length < 2 || parts.some((p) => !Number.isFinite(p))) return null;
   return [parts[0], parts[1]];
 }
@@ -193,6 +198,77 @@ function mlbBatterLine(games: Game[]): StatLine {
   };
 }
 
+/**
+ * Football, which needs the position to read its own game log correctly.
+ *
+ * The `names` array differs by position — a quarterback's log carries passing
+ * and rushing columns, a receiver's carries receiving ones — and, worse, the
+ * key `sacks` means *sacks taken* in a quarterback's log and *sacks made* in a
+ * defender's. Reading it blindly would credit a sacked quarterback with the
+ * defensive line's best game.
+ */
+function nflLine(games: Game[], position: string): StatLine {
+  const p = position.toUpperCase();
+  const line: StatLine = { gamesPlayed: games.length };
+  const isDefender = !["QB", "RB", "FB", "HB", "WR", "TE", "PK", "K", "P"].includes(p);
+
+  if (p === "QB") {
+    line.passingYards = sum(games, "passingYards");
+    line.passingTouchdowns = sum(games, "passingTouchdowns");
+    line.passingInterceptions = sum(games, "interceptions");
+    const att = sum(games, "passingAttempts");
+    const cmp = sum(games, "completions");
+    // Recomputed over the window, not averaged — the same reason basketball
+    // shooting percentage is rebuilt from makes and attempts.
+    line.completionPct = att > 0 ? (cmp / att) * 100 : undefined;
+    line.rushingYards = sum(games, "rushingYards");
+    line.rushingTouchdowns = sum(games, "rushingTouchdowns");
+    return line;
+  }
+
+  if (p === "RB" || p === "FB" || p === "HB" || p === "WR" || p === "TE") {
+    line.rushingYards = sum(games, "rushingYards");
+    line.rushingTouchdowns = sum(games, "rushingTouchdowns");
+    line.receptions = sum(games, "receptions");
+    line.receivingYards = sum(games, "receivingYards");
+    line.receivingTouchdowns = sum(games, "receivingTouchdowns");
+    return line;
+  }
+
+  if (p === "PK" || p === "K") {
+    line.fieldGoalsMade = sum(games, "fieldGoalsMade-fieldGoalAttempts");
+    line.kickingPoints = sum(games, "totalKickingPoints");
+    let made = 0;
+    let attempted = 0;
+    for (const g of games) {
+      const fg = pair(g.raw.get("fieldGoalsMade-fieldGoalAttempts"));
+      if (fg) {
+        made += fg[0];
+        attempted += fg[1];
+      }
+    }
+    line.fieldGoalPctKicking = attempted > 0 ? (made / attempted) * 100 : undefined;
+    return line;
+  }
+
+  if (p === "P") {
+    const punts = sum(games, "punts");
+    const yards = sum(games, "puntYards");
+    line.puntAverage = punts > 0 ? yards / punts : undefined;
+    line.puntsInside20 = sum(games, "puntsInside20");
+    return line;
+  }
+
+  if (isDefender) {
+    line.tackles = sum(games, "totalTackles");
+    line.sacks = sum(games, "sacks");
+    line.defensiveInterceptions = sum(games, "interceptions");
+    line.forcedFumbles = sum(games, "fumblesForced");
+    line.passesDefended = sum(games, "passesDefended");
+  }
+  return line;
+}
+
 /** MLB pitchers. ERA and WHIP are rate stats, so both are rebuilt over the window. */
 function mlbPitcherLine(games: Game[]): StatLine {
   // "6.2" innings means six and two thirds, not six point two.
@@ -227,6 +303,27 @@ function mlbPitcherLine(games: Game[]): StatLine {
     pitcherStrikeouts: sum(games, "strikeouts"),
     saves,
   };
+}
+
+function summarizeNfl(g: Game, position: string): string {
+  const p = position.toUpperCase();
+  const n = (k: string) => g.stats.get(k) ?? 0;
+  if (p === "QB") {
+    return `${n("passingYards")} yds · ${n("passingTouchdowns")} TD · ${n("interceptions")} INT`;
+  }
+  if (p === "RB" || p === "FB" || p === "HB") {
+    return `${n("rushingYards")} rush · ${n("rushingTouchdowns")} TD · ${n("receptions")} rec`;
+  }
+  if (p === "WR" || p === "TE") {
+    return `${n("receptions")} rec · ${n("receivingYards")} yds · ${n("receivingTouchdowns")} TD`;
+  }
+  if (p === "PK" || p === "K") {
+    return `${g.raw.get("fieldGoalsMade-fieldGoalAttempts") ?? "0/0"} FG · ${n("totalKickingPoints")} pts`;
+  }
+  if (p === "P") {
+    return `${n("punts")} punts · ${n("puntYards")} yds`;
+  }
+  return `${n("totalTackles")} tkl · ${n("sacks")} sack · ${n("interceptions")} INT`;
 }
 
 function summarize(sport: "nba" | "mlb", g: Game, isPitcher: boolean): string {
@@ -264,11 +361,12 @@ const EMPTY: RecentForm = { recent: null, games: [] };
  * is the one made most often.
  */
 export async function fetchRecentForm(
-  sport: "nba" | "mlb",
+  sport: LogSport,
   athleteId: string,
-  opts: { isPitcher?: boolean; logLimit?: number } = {}
+  opts: { isPitcher?: boolean; position?: string; logLimit?: number } = {}
 ): Promise<RecentForm> {
-  const path = sport === "nba" ? "basketball/nba" : "baseball/mlb";
+  const path =
+    sport === "nba" ? "basketball/nba" : sport === "mlb" ? "baseball/mlb" : "football/nfl";
   try {
     const doc = await getJson<GamelogDoc>(
       `${SITE_ROOT}/${path}/athletes/${athleteId}/gamelog`,
@@ -288,17 +386,24 @@ export async function fetchRecentForm(
  * plausible-looking number rather than an error.
  */
 export function recentFormFromDoc(
-  sport: "nba" | "mlb",
+  sport: LogSport,
   doc: GamelogDoc,
-  opts: { isPitcher?: boolean; logLimit?: number } = {}
+  opts: { isPitcher?: boolean; position?: string; logLimit?: number } = {}
 ): RecentForm {
   const games = parseGames(doc);
   if (games.length === 0) return EMPTY;
 
   const window = games.slice(0, RECENT_GAMES[sport]);
   const isPitcher = opts.isPitcher ?? false;
+  const position = opts.position ?? "";
   const recent =
-    sport === "nba" ? nbaLine(window) : isPitcher ? mlbPitcherLine(window) : mlbBatterLine(window);
+    sport === "nba"
+      ? nbaLine(window)
+      : sport === "nfl"
+        ? nflLine(window, position)
+        : isPitcher
+          ? mlbPitcherLine(window)
+          : mlbBatterLine(window);
 
   return {
     recent: recent.gamesPlayed > 0 ? recent : null,
@@ -306,13 +411,19 @@ export function recentFormFromDoc(
       date: g.date ?? "",
       opponent: g.opponent,
       homeAway: g.homeAway,
-      summary: summarize(sport, g, isPitcher),
+      summary: sport === "nfl" ? summarizeNfl(g, position) : summarize(sport, g, isPitcher),
       headline:
         sport === "nba"
           ? (g.stats.get("points") ?? null)
-          : isPitcher
-            ? (g.stats.get("strikeouts") ?? null)
-            : (g.stats.get("hits") ?? null),
+          : sport === "nfl"
+            ? (g.stats.get("passingYards") ??
+              g.stats.get("receivingYards") ??
+              g.stats.get("rushingYards") ??
+              g.stats.get("totalTackles") ??
+              null)
+            : isPitcher
+              ? (g.stats.get("strikeouts") ?? null)
+              : (g.stats.get("hits") ?? null),
     })),
   };
 }

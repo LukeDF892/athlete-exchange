@@ -34,6 +34,9 @@ export const FEEDS: FeedSource[] = [
   { url: "https://www.espn.com/espn/rss/mlb/news", source: "ESPN", sport: "mlb" },
   { url: "https://www.cbssports.com/rss/headlines/mlb/", source: "CBS Sports", sport: "mlb" },
   { url: "https://sports.yahoo.com/mlb/rss.xml", source: "Yahoo Sports", sport: "mlb" },
+  { url: "https://www.espn.com/espn/rss/nfl/news", source: "ESPN", sport: "nfl" },
+  { url: "https://www.cbssports.com/rss/headlines/nfl/", source: "CBS Sports", sport: "nfl" },
+  { url: "https://sports.yahoo.com/nfl/rss.xml", source: "Yahoo Sports", sport: "nfl" },
 ];
 
 function decodeEntities(s: string): string {

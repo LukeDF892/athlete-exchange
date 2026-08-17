@@ -11,9 +11,20 @@ import { loadEnvConfig } from "@next/env";
 
 loadEnvConfig(process.cwd());
 
+import type { Sport } from "@/lib/pricing/engine";
 import { runIngest } from "@/lib/ingest/run";
 
-runIngest({ push: process.argv.includes("--push") }).catch((err) => {
+/**
+ * `--sports nfl,nba` restricts the run, which is what the scheduled refresh
+ * does one league at a time. Leagues left out are carried forward, not dropped.
+ */
+const sportsArg = process.argv.indexOf("--sports");
+const sports =
+  sportsArg >= 0 && process.argv[sportsArg + 1]
+    ? (process.argv[sportsArg + 1].split(",").map((s) => s.trim()) as Sport[])
+    : undefined;
+
+runIngest({ push: process.argv.includes("--push"), sports }).catch((err) => {
   console.error("ingest failed:", err);
   process.exit(1);
 });

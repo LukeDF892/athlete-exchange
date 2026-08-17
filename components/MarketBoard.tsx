@@ -26,7 +26,7 @@ import { Sparkline } from "@/components/PriceChart";
 const PAGE_SIZE = 100;
 
 type SortKey = "price" | "name" | "premium" | "value" | "change";
-type SportFilter = "all" | "nba" | "nhl" | "mlb";
+type SportFilter = "all" | "nba" | "nhl" | "mlb" | "nfl";
 
 interface Props {
   players: MarketRow[];
@@ -222,7 +222,7 @@ export function MarketBoard({
 
         <div className="flex items-center gap-2">
           <div className="flex rounded-lg border border-ink-700 bg-ink-850 p-0.5">
-            {(["all", "nba", "nhl", "mlb"] as const).map((s) => (
+            {(["all", "nfl", "nba", "nhl", "mlb"] as const).map((s) => (
               <button
                 key={s}
                 onClick={() => {

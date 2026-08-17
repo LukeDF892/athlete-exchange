@@ -16,12 +16,18 @@ import { runIngest } from "@/lib/ingest/run";
  */
 export const dynamic = "force-dynamic";
 /**
- * The Hobby plan's ceiling. A full three-league ingest takes about 140 seconds
- * locally, so this has headroom — but not a lot, and the MLB pool is the part
- * that grows. If a refresh ever times out, the fix is to split the schedule
- * into one cron per league rather than to raise this.
+ * The Hobby plan's ceiling, and the reason this route takes a `?sport=`.
+ *
+ * All four leagues in one pass measured 337 seconds once the NFL's ~1,700
+ * players joined — past this limit, so the scheduled refresh would simply have
+ * been killed part way through. Rather than raise a ceiling that cannot be
+ * raised, the schedule runs one league per cron; each finishes well inside the
+ * budget and the leagues a run skips are carried forward untouched.
  */
 export const maxDuration = 300;
+
+const ALL_SPORTS = ["nba", "nhl", "mlb", "nfl"] as const;
+type SportName = (typeof ALL_SPORTS)[number];
 
 export async function GET(request: Request) {
   // Vercel signs cron invocations with CRON_SECRET. Anything else is a stranger
@@ -34,8 +40,16 @@ export async function GET(request: Request) {
   }
 
   const started = Date.now();
+  // One league per invocation. All four together take ~340s, past the 300s
+  // ceiling; each cron entry names its own league via ?sport=, and the leagues
+  // it does not run are carried forward rather than dropped.
+  const requested = new URL(request.url).searchParams.get("sport");
+  const sports = ALL_SPORTS.includes(requested as SportName)
+    ? [requested as SportName]
+    : undefined;
+
   try {
-    const result = await runIngest({ push: true });
+    const result = await runIngest({ push: true, sports });
 
     // Record every trader's net worth *after* prices update, so the point on
     // their chart matches the board they would have seen that morning.
@@ -70,6 +84,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
       ok: true,
+      sports: sports ?? "all",
       ...result,
       snapshots,
       digests,

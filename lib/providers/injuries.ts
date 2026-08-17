@@ -35,6 +35,7 @@ const ENDPOINTS: Record<Sport, string> = {
   nba: "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/injuries",
   nhl: "https://site.api.espn.com/apis/site/v2/sports/hockey/nhl/injuries",
   mlb: "https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/injuries",
+  nfl: "https://site.api.espn.com/apis/site/v2/sports/football/nfl/injuries",
 };
 
 interface EspnInjuryDoc {
