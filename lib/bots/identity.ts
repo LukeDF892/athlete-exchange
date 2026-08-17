@@ -27,24 +27,21 @@ export interface BotIdentity {
 }
 
 /**
- * Twelve bots, weighted toward the strategies that make a market rather than
- * just add noise. Momentum chases moves and creates trends; value pushes back
- * toward fair value and stops those trends running away. Noise exists so the
- * board is not perfectly predictable.
+ * Thirty bots, weighted toward value.
+ *
+ * Started at twelve, which moved prices but thinly — a slot woke three bots and
+ * a quiet listing could go days untouched. Thirty wakes seven or eight per slot,
+ * so the board ticks over continuously rather than in visible bursts.
+ *
+ * The mix is deliberately value-heavy rather than an even split. Value bots are
+ * the ones that *sell* into a premium, and the first week of real trading ran
+ * 158 buys to 12 sells — momentum and noise both accumulate, so adding them in
+ * equal measure would have made the upward drift worse rather than better.
  */
 const ROSTER: Strategy[] = [
-  "momentum",
-  "momentum",
-  "momentum",
-  "momentum",
-  "value",
-  "value",
-  "value",
-  "value",
-  "value",
-  "noise",
-  "noise",
-  "noise",
+  ...Array<Strategy>(9).fill("momentum"),
+  ...Array<Strategy>(14).fill("value"),
+  ...Array<Strategy>(7).fill("noise"),
 ];
 
 export function botRoster(): BotIdentity[] {
@@ -77,7 +74,7 @@ export function isBotUsername(username: string): boolean {
 /**
  * When trading happens, in UTC hours.
  *
- * All twelve bots used to fire in one eight-second burst, which put a day's
+ * Every bot used to fire in one eight-second burst, which put a day's
  * worth of movement into a single instant: the price chart showed one vertical
  * step and nothing else, which is not what a market looks like.
  *
@@ -95,8 +92,8 @@ export const SLOT_HOURS = [13, 15, 16, 18, 19, 21, 22, 23] as const;
 /**
  * Which bots trade in a given slot.
  *
- * Each bot is active in two of the eight slots, and each slot wakes about three
- * bots. Staggering by `(index + slot)` rather than by strategy means momentum
+ * Each bot is active in two of the eight slots, and each slot wakes roughly a
+ * quarter of the roster. Staggering by `(index + slot)` rather than by strategy means momentum
  * and value bots are rarely awake together in the same slot — so a price gets
  * pushed in one slot and argued with a few hours later, instead of both
  * happening at once and cancelling out.

@@ -98,3 +98,59 @@ export async function getPriceChanges(
     return {};
   }
 }
+
+
+/**
+ * A short market-price series per listing, over the selected window.
+ *
+ * The board's trend column used to be drawn from `careerValue` — a season-by
+ * -season arc going back to a rookie year — while sitting directly beside a
+ * 1D/1W/1M selector. It therefore never changed when the window changed, and
+ * silently showed a multi-year shape labelled as a day's movement.
+ *
+ * This reads the same ticks `getPriceChanges` does and keeps a handful of
+ * evenly-spread points, which is all a sparkline can express anyway. "career"
+ * is the one window that legitimately wants the career arc, so it is handled by
+ * the caller rather than here.
+ */
+export async function getPriceTrends(
+  window: Exclude<ChangeWindow, "career">,
+  maxPoints = 12
+): Promise<Record<string, number[]>> {
+  if (!isSupabaseConfigured()) return {};
+
+  try {
+    const supabase = await createSupabaseServerClient();
+    const since = new Date(Date.now() - WINDOW_MS[window]).toISOString();
+    const PAGE = 1000;
+    const series: Record<string, number[]> = {};
+
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await supabase
+        .from("price_ticks")
+        .select("player_id, market_price")
+        .gte("ts", since)
+        .order("ts", { ascending: true })
+        .range(from, from + PAGE - 1);
+      if (error) break;
+      const rows = (data ?? []) as Array<{ player_id: string; market_price: number }>;
+      for (const t of rows) {
+        const list = series[t.player_id] ?? (series[t.player_id] = []);
+        list.push(Number(t.market_price));
+      }
+      if (rows.length < PAGE) break;
+      if (from > 200_000) break;
+    }
+
+    // Thin each series down. A sparkline forty pixels wide cannot show three
+    // hundred ticks, and sending them all would bloat the payload for nothing.
+    for (const [id, list] of Object.entries(series)) {
+      if (list.length <= maxPoints) continue;
+      const step = (list.length - 1) / (maxPoints - 1);
+      series[id] = Array.from({ length: maxPoints }, (_, i) => list[Math.round(i * step)]);
+    }
+    return series;
+  } catch {
+    return {};
+  }
+}

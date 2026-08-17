@@ -7,7 +7,7 @@ import { isSignedIn } from "@/lib/market/portfolio";
 import { EmptyState, StatTile } from "@/components/ui";
 import { money, signedPct } from "@/lib/format";
 import { marketIndexPct, toMarketRow } from "@/lib/market/types";
-import { getPriceChanges, CHANGE_WINDOWS, type ChangeWindow } from "@/lib/market/changes";
+import { getPriceChanges, getPriceTrends, CHANGE_WINDOWS, type ChangeWindow } from "@/lib/market/changes";
 import type { Player } from "@/lib/market/types";
 
 export default async function MarketPage(props: PageProps<"/">) {
@@ -32,9 +32,21 @@ export default async function MarketPage(props: PageProps<"/">) {
   // numbers rather than a chart engine. These are career value by season — real
   // history — rather than the modeled price walk they used to show, which drew
   // a confident trend line for athletes nobody had ever traded.
-  const trends: Record<string, number[]> = {};
+  /**
+   * The trend column follows the selected window.
+   *
+   * "career" is the one window where a season-by-season arc is the right shape;
+   * every other window wants actual price ticks from that period. A listing with
+   * no ticks in the window gets no sparkline, which is honest — it has not
+   * traded — rather than a career shape standing in for one.
+   */
+  const trends: Record<string, number[]> =
+    changeWindow === "career"
+      ? {}
+      : await getPriceTrends(changeWindow);
+  const careerTrends: Record<string, number[]> = {};
   for (const p of players) {
-    trends[p.id] = p.careerValue.map((c) => c.value);
+    careerTrends[p.id] = p.careerValue.map((c) => c.value);
   }
 
   const totalCap = players.reduce((a, p) => a + p.marketPrice * p.liquidityDepth * 0.01, 0);
@@ -97,7 +109,7 @@ export default async function MarketPage(props: PageProps<"/">) {
 
       <MarketBoard
         players={players.map(toMarketRow)}
-        trends={trends}
+        trends={changeWindow === "career" ? careerTrends : trends}
         indexPct={indexPct}
         changes={changes}
         changeWindow={changeWindow}

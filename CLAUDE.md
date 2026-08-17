@@ -230,6 +230,18 @@ and two thirds. Full three-league ingest: ~105-120s, against a 300s cron cap.
   `.gt("shares", 0)`; a negative position would make `decide()` try to "sell"
   it, which opens a bigger short rather than closing anything.
 
+- **The trend sparkline was drawn from `careerValue`** — a season-by-season arc
+  going back to a rookie year — while sitting beside a 1D/1W/1M selector, so it
+  never changed when the window did. `getPriceTrends(window)` now reads actual
+  price ticks for the selected period and thins them to twelve points; "career"
+  is the one window that legitimately wants the season arc. A listing with no
+  ticks in the window gets no sparkline rather than a career shape standing in
+  for one.
+- **Thirty bots, value-weighted (9 momentum / 14 value / 7 noise).** Twelve woke
+  only three per slot. The mix is not an even split on purpose: value bots are
+  the ones that sell into a premium, and momentum and noise both accumulate, so
+  scaling them equally would have worsened the 158-buys-to-12-sells drift.
+
 ## This machine
 
 - **Disk runs at 95-100% full.** `npm install` and builds fail with `ENOSPC`,

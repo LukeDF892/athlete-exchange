@@ -92,6 +92,14 @@ export function MarketBoard({
   // it compares a $5 listing and a $400 one on the same footing; dollars
   // answers "what did this actually cost me", which matters once you hold it.
   const [changeUnit, setChangeUnit] = useState<"pct" | "abs">("pct");
+  /**
+   * Sort direction.
+   *
+   * The board only ever sorted downward, so the cheapest listings, the worst
+   * performers and the biggest fallers were all five thousand rows away. Every
+   * sort key has an interesting bottom as well as an interesting top.
+   */
+  const [desc, setDesc] = useState(true);
 
   /**
    * Optimistic selection for the change window.
@@ -124,10 +132,14 @@ export function MarketBoard({
     }
 
     const sorted = [...list];
+    // Written as "descending, then reversed" rather than branching inside every
+    // comparator, so a listing with no change data stays at the far end in both
+    // directions instead of jumping to the top when you flip the arrow.
     switch (sort) {
       case "name":
         sorted.sort((a, b) => a.fullName.localeCompare(b.fullName));
-        break;
+        if (desc) sorted.reverse();
+        return sorted;
       case "premium":
         sorted.sort((a, b) => marketPremiumPct(b) - marketPremiumPct(a));
         break;
@@ -142,8 +154,9 @@ export function MarketBoard({
       default:
         sorted.sort((a, b) => b.marketPrice - a.marketPrice);
     }
+    if (!desc) sorted.reverse();
     return sorted;
-  }, [players, query, sport, sort, changes]);
+  }, [players, query, sport, sort, changes, desc]);
 
   const shown = rows.slice(0, visible);
 
@@ -288,6 +301,16 @@ export function MarketBoard({
               </button>
             ))}
           </div>
+
+          <button
+            onClick={() => setDesc((d) => !d)}
+            aria-pressed={!desc}
+            title={desc ? "Showing highest first" : "Showing lowest first"}
+            className="flex items-center gap-1 rounded-lg border border-ink-700 bg-ink-850 px-2.5 py-1.5 text-xs font-semibold text-ink-200 transition-colors hover:bg-ink-800"
+          >
+            <span aria-hidden="true">{desc ? "\u2193" : "\u2191"}</span>
+            {desc ? "High" : "Low"}
+          </button>
 
           <select
             value={sort}
