@@ -143,12 +143,26 @@ export async function runBots(options: RunOptions = {}): Promise<BotRunResult> {
     return result;
   }
 
-  for (const [i, bot] of roster.entries()) {
-    // A few seconds between bots. Three orders landing in the same second still
-    // reads as a burst on a chart, and the route has 300s of budget for a batch
-    // that needs about five, so spending a little of it on spacing is free.
-    if (i > 0) await new Promise((r) => setTimeout(r, 4000 + Math.random() * 6000));
+  /**
+   * Decide first, then trade slowly.
+   *
+   * The old shape was: for each bot, sign in and fire all its orders. That
+   * emptied a slot in a few seconds however many slots there were — shrinking
+   * the burst without removing it. Now every bot's intentions are gathered
+   * first, interleaved, and executed one at a time across the run's whole
+   * budget, so the market is doing something every twenty seconds or so rather
+   * than everything at once and then nothing.
+   */
+  interface Pending {
+    client: SupabaseClient;
+    bot: (typeof roster)[number];
+    order: { playerId: string; side: "buy" | "sell"; shares: number; intent: "close" | "open"; reason: string };
+  }
 
+  const clients: SupabaseClient[] = [];
+  const pending: Pending[] = [];
+
+  for (const bot of roster) {
     const rng = makeRng(seed + bot.index * 7919);
     let client: SupabaseClient;
     try {
@@ -161,114 +175,101 @@ export async function runBots(options: RunOptions = {}): Promise<BotRunResult> {
         result.log.push(`${bot.username}: cannot sign in (${error.message})`);
         continue;
       }
+      clients.push(client);
       result.signedIn++;
     } catch (err) {
       result.log.push(`${bot.username}: ${err instanceof Error ? err.message : "sign-in failed"}`);
       continue;
     }
 
-    try {
-      const [{ data: profile }, { data: holdings }] = await Promise.all([
-        client.from("profiles").select("cash_balance").maybeSingle(),
-        // Every position, including negative ones. Filtering to `> 0` hid any
-        // short a bot had accidentally opened, so it never covered — and a
-        // later "sell" against a position the bot could not see opened a
-        // *second* short on top.
-        client.from("holdings").select("player_id, shares").neq("shares", 0),
-      ]);
+    const [{ data: profile }, { data: holdings }] = await Promise.all([
+      client.from("profiles").select("cash_balance").maybeSingle(),
+      client.from("holdings").select("player_id, shares").neq("shares", 0),
+    ]);
 
-      const view: BotView = {
-        players,
-        change,
-        held: new Map((holdings ?? []).map((h) => [String(h.player_id), Number(h.shares)])),
-        cash: Number(profile?.cash_balance ?? 0),
-      };
+    const view: BotView = {
+      players,
+      change,
+      held: new Map((holdings ?? []).map((h) => [String(h.player_id), Number(h.shares)])),
+      cash: Number(profile?.cash_balance ?? 0),
+    };
 
-      /**
-       * Cover shorts that have gone wrong, before anything else.
-       *
-       * Bots may now short deliberately, so a negative position is no longer
-       * automatically a bug. What is still worth closing is one that has moved
-       * against the bot: covering here caps the damage the way a trader with a
-       * stop would, and keeps the accidental ones from surviving either.
-       */
-      const shorts = [...view.held.entries()].filter(([id, n]) => {
-        if (n >= 0) return false;
-        const p = players.find((pl) => pl.id === id);
-        // Cover once the price has run 10% past where the short was opened,
-        // or whenever the listing has fallen back to fair value and the trade
-        // has done its job.
-        if (!p) return true;
-        return p.fairValue > 0 && p.marketPrice <= p.fairValue * 1.02;
+    // Covering a losing short is not discretionary, so it is queued first
+    // rather than spread — a stop that waits four minutes is not a stop.
+    for (const [playerId, n] of view.held.entries()) {
+      if (n >= 0) continue;
+      const p = players.find((pl) => pl.id === playerId);
+      if (p && p.fairValue > 0 && p.marketPrice > p.fairValue * 1.02) continue;
+      const { error } = await client.rpc("execute_trade", {
+        p_player_id: playerId,
+        p_side: "buy",
+        p_shares: Math.abs(n),
       });
-      for (const [playerId, n] of shorts) {
-        const { error } = await client.rpc("execute_trade", {
-          p_player_id: playerId,
-          p_side: "buy",
-          p_shares: Math.abs(n),
-        });
-        if (error) {
-          result.ordersRejected++;
-          continue;
-        }
+      if (error) result.ordersRejected++;
+      else {
         result.ordersPlaced++;
         view.held.delete(playerId);
         result.log.push(`${bot.username} cover ${Math.abs(n)} — back to fair value`);
       }
+    }
 
-      for (const order of decide(bot.strategy, view, rng)) {
-        /**
-         * Never sell more than is actually held at this instant.
-         *
-         * `decide()` works from a snapshot taken before the first order; by the
-         * time a later order runs, an earlier one has already moved the
-         * position. Selling into that gap is exactly how an unintended short
-         * gets opened, so the size is re-checked against the live row.
-         */
-        if (order.side === "sell") {
-          const { data: cur } = await client
-            .from("holdings")
-            .select("shares")
-            .eq("player_id", order.playerId)
-            .maybeSingle();
-          const heldNow = Number(cur?.shares ?? 0);
-
-          if (order.intent === "close") {
-            // Closing requires something to close. This is the guard that keeps
-            // an accidental short impossible: if the position is already gone,
-            // the order is dropped rather than becoming a short.
-            if (heldNow <= 0) continue;
-            order.shares = Math.min(order.shares, heldNow);
-          } else if (heldNow !== 0) {
-            // Opening a short requires a flat position — never cross zero.
-            continue;
-          }
-        }
-
-        const { data, error } = await client.rpc("execute_trade", {
-          p_player_id: order.playerId,
-          p_side: order.side,
-          p_shares: order.shares,
-        });
-        if (error) {
-          // Rejections are normal and informative: a bot hitting the position
-          // cap or running out of cash is the limits doing their job, not a
-          // bug, so they are counted rather than thrown.
-          result.ordersRejected++;
-          continue;
-        }
-        const net = Number((data as { net?: number } | null)?.net ?? 0);
-        result.ordersPlaced++;
-        result.volume += net;
-        const name = players.find((p) => p.id === order.playerId)?.fullName ?? "?";
-        result.log.push(
-          `${bot.username} ${order.side} ${order.shares} ${name} — ${order.reason}`
-        );
-      }
-    } finally {
-      await client.auth.signOut();
+    for (const order of decide(bot.strategy, view, rng)) {
+      pending.push({ client, bot, order });
     }
   }
+
+  // Interleave so consecutive orders come from different bots, which is what
+  // makes the tape read like several traders rather than one taking turns.
+  for (let i = pending.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pending[i], pending[j]] = [pending[j], pending[i]];
+  }
+
+  // Fill the budget rather than the first few seconds of it. 240s leaves room
+  // for the sign-ins already spent and a margin under the 300s ceiling.
+  const started = Date.now();
+  const windowMs = 240_000;
+  const gap = pending.length > 1 ? windowMs / pending.length : 0;
+
+  for (const [i, { client, bot, order }] of pending.entries()) {
+    if (i > 0) {
+      const target = started + gap * i;
+      const wait = target - Date.now();
+      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    }
+
+    if (order.side === "sell") {
+      const { data: cur } = await client
+        .from("holdings")
+        .select("shares")
+        .eq("player_id", order.playerId)
+        .maybeSingle();
+      const heldNow = Number(cur?.shares ?? 0);
+      if (order.intent === "close") {
+        if (heldNow <= 0) continue;
+        order.shares = Math.min(order.shares, heldNow);
+      } else if (heldNow !== 0) {
+        continue;
+      }
+    }
+
+    const { data, error } = await client.rpc("execute_trade", {
+      p_player_id: order.playerId,
+      p_side: order.side,
+      p_shares: order.shares,
+    });
+    if (error) {
+      result.ordersRejected++;
+      continue;
+    }
+    const net = Number((data as { net?: number } | null)?.net ?? 0);
+    result.ordersPlaced++;
+    result.volume += net;
+    const name = players.find((p) => p.id === order.playerId)?.fullName ?? "?";
+    result.log.push(`${bot.username} ${order.side} ${order.shares} ${name} — ${order.reason}`);
+  }
+
+  await Promise.all(clients.map((c) => c.auth.signOut().catch(() => {})));
 
   return result;
 }

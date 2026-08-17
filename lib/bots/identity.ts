@@ -86,11 +86,16 @@ export function isBotUsername(username: string): boolean {
  * different hours rather than one frequent job. Each of these hours is its own
  * entry in vercel.json.
  *
- * Hourly slots were still bursts, just smaller ones: eight or nine bots fired
- * within about five seconds and then nothing happened for an hour. Cron
- * expressions carry a minute field, and Hobby's "once per day" limit is per
- * *job* — so `0 14 * * *` and `20 14 * * *` are two separate daily jobs. Three
- * per hour gives a firing point every twenty minutes.
+ * Twenty-minute slots were still bursts: a handful of orders in fifteen seconds
+ * and then nothing for the rest of the twenty minutes. Two things fix that
+ * together — firing points every ten minutes, and a run that *spreads its
+ * orders across its whole five-minute budget* rather than emptying them at
+ * once. Between them the market is doing something roughly every twenty
+ * seconds, with a pause of about five minutes between runs rather than twenty.
+ *
+ * Ninety slots is close to Hobby's hundred-job ceiling, four of which the
+ * refresh already uses. That ceiling is the reason the day stops at 02:00
+ * rather than 04:00: coverage was worth more than the last two hours.
  *
  * Hobby's scheduling is only accurate to the hour, so a job set for 14:20 may
  * land anywhere in that hour. That is why each cron entry names its own slot in
@@ -103,8 +108,8 @@ export function isBotUsername(username: string): boolean {
  * and a market that is quiet overnight reads as a market rather than a machine.
  */
 export const SLOT_TIMES: ReadonlyArray<{ hour: number; minute: number }> = (() => {
-  const hours = [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3];
-  return hours.flatMap((hour) => [0, 20, 40].map((minute) => ({ hour, minute })));
+  const hours = [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1];
+  return hours.flatMap((hour) => [0, 10, 20, 30, 40, 50].map((minute) => ({ hour, minute })));
 })();
 
 /** Kept for the clock fallback and for tests that reason about coverage. */
@@ -113,15 +118,15 @@ export const SLOT_HOURS = SLOT_TIMES.map((t) => t.hour);
 /**
  * Which bots trade in a given slot.
  *
- * Each bot is active in three of the fifty-one slots, and each slot wakes about
- * three bots — a handful of trades every twenty minutes rather than two dozen
- * on the hour. Staggering by `(index + slot)` rather than by strategy
+ * Each slot wakes about four bots, and each bot trades in seven or eight of the
+ * ninety slots. Four bots is enough orders to keep a five-minute run busy once
+ * they are spaced out, without any one bot trading so often it runs out of cash. Staggering by `(index + slot)` rather than by strategy
  * means momentum and value bots are rarely awake together in the same slot — so
  * a price gets pushed in one slot and argued with a few hours later, instead of
  * both happening at once and cancelling out.
  */
 export function botsForSlot(slot: number): BotIdentity[] {
-  return botRoster().filter((b) => (b.index + slot) % 17 === 0);
+  return botRoster().filter((b) => (b.index + slot) % 12 === 0);
 }
 
 /**
