@@ -609,20 +609,23 @@ test("bot trading is spread across the day, not fired all at once", () => {
   assert.ok(ascending, "slot hours must be sorted");
 });
 
-test("the current slot follows the clock and is absent before the first one", () => {
+test("the current slot resolves to the most recent one that has begun", () => {
   const at = (hour: number) => new Date(Date.UTC(2026, 7, 16, hour, 30));
 
-  // Before the first slot there is nothing to run rather than a wrap to the
-  // last slot of the day — otherwise a morning run would replay last night.
-  assert.equal(currentSlot(at(0)), null);
-  assert.equal(currentSlot(at(SLOT_HOURS[0] - 1)), null);
-
+  // Trading now starts at midnight UTC, so every hour of the day sits at or
+  // after a slot — there is no longer a "before the first one" to be absent for.
   assert.equal(currentSlot(at(SLOT_HOURS[0])), 0);
   assert.equal(currentSlot(at(SLOT_HOURS[SLOT_HOURS.length - 1])), SLOT_HOURS.length - 1);
 
-  // A cron that fires up to 59 minutes late still resolves to its own slot,
-  // which is what Hobby's per-hour scheduling precision requires.
-  const slotHour = SLOT_HOURS[2];
-  assert.equal(currentSlot(new Date(Date.UTC(2026, 7, 16, slotHour, 0))), 2);
-  assert.equal(currentSlot(new Date(Date.UTC(2026, 7, 16, slotHour, 59))), 2);
+  // The overnight gap holds the last slot before it rather than wrapping to the
+  // end of yesterday, so a late or manual run cannot replay the previous night.
+  const lastBeforeGap = SLOT_HOURS.filter((h) => h < 10).length - 1;
+  assert.equal(currentSlot(at(6)), lastBeforeGap);
+  assert.equal(currentSlot(at(9)), lastBeforeGap);
+
+  // A cron firing up to 59 minutes late still resolves to its own slot, which
+  // is what Hobby's per-hour scheduling precision requires.
+  const slotHour = SLOT_HOURS[5];
+  assert.equal(currentSlot(new Date(Date.UTC(2026, 7, 16, slotHour, 0))), 5);
+  assert.equal(currentSlot(new Date(Date.UTC(2026, 7, 16, slotHour, 59))), 5);
 });

@@ -85,11 +85,20 @@ export function isBotUsername(username: string): boolean {
  * different hours rather than one frequent job. Each of these hours is its own
  * entry in vercel.json.
  *
+ * Eight slots clustered between 13:00 and 23:00 left a fourteen-hour dead zone
+ * and made trading feel like bursts: a quarter of the roster fired at once,
+ * then nothing for hours. Seventeen hourly slots, each waking a sixth of the
+ * roster, turns that into a handful of trades most hours. The 04:00-10:00 gap
+ * is deliberate — that is the small hours in Atlantic time, and a market that
+ * is quiet overnight reads as a market rather than a machine.
+ *
  * Hobby scheduling is only accurate to the hour (a job set for 14:00 fires
  * somewhere in 14:00-14:59), which is a feature here: trades do not land at
  * predictable clock times.
  */
-export const SLOT_HOURS = [13, 15, 16, 18, 19, 21, 22, 23] as const;
+export const SLOT_HOURS = [
+  0, 1, 2, 3, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+] as const;
 
 /**
  * Which bots trade in a given slot.
@@ -101,7 +110,7 @@ export const SLOT_HOURS = [13, 15, 16, 18, 19, 21, 22, 23] as const;
  * happening at once and cancelling out.
  */
 export function botsForSlot(slot: number): BotIdentity[] {
-  return botRoster().filter((b) => (b.index + slot) % 4 === 0);
+  return botRoster().filter((b) => (b.index + slot) % 6 === 0);
 }
 
 /**
