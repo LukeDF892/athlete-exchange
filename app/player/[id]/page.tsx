@@ -5,6 +5,8 @@ import { getTradingContext, getTrades, getWatchlistIds } from "@/lib/market/port
 import { WatchButton } from "@/components/WatchButton";
 import { RetirementBanner } from "@/components/RetirementBanner";
 import { TradeHistory } from "@/components/TradeHistory";
+import { PlayerTape } from "@/components/PlayerTape";
+import { getPlayerTape } from "@/lib/market/tape";
 import { marketPremiumPct } from "@/lib/market/types";
 import { money, signedMoney, signedPct, timeAgo, trendClass } from "@/lib/format";
 import { PriceChart } from "@/components/PriceChart";
@@ -73,13 +75,14 @@ export default async function PlayerPage(props: PageProps<"/player/[id]">) {
   const player = await getPlayer(id);
   if (!player) notFound();
 
-  const [history, news, trading, trades, watchedIds, fixtures] = await Promise.all([
+  const [history, news, trading, trades, watchedIds, fixtures, tape] = await Promise.all([
     getPriceHistory(player),
     getNewsForPlayer(id),
     getTradingContext(id),
     getTrades(20, id),
     getWatchlistIds(),
     fetchUpcoming(player.sport, player.teamAbbrev),
+    getPlayerTape(id),
   ]);
   const premium = marketPremiumPct(player);
   const hasTraded = player.sharesOutstanding > 0;
@@ -205,6 +208,20 @@ export default async function PlayerPage(props: PageProps<"/player/[id]">) {
               hint="shares to roughly triple the price"
             />
           </section>
+
+          {/* Everyone's activity on this listing, not just yours — a busy
+              athlete looked untouched when the page showed only your own
+              trades. Your history stays separate below, because it is the only
+              part with your cost basis in it. */}
+          <Card className="overflow-hidden">
+            <div className="border-b border-ink-750 px-4 py-3">
+              <h2 className="text-sm font-semibold text-ink-100">Market activity</h2>
+              <p className="mt-0.5 text-xs text-ink-400">
+                Every trader&rsquo;s buys and sells on this listing.
+              </p>
+            </div>
+            <PlayerTape entries={tape} />
+          </Card>
 
           {trades.length > 0 && <TradeHistory trades={trades} title="Your trades" />}
 
