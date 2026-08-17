@@ -28,6 +28,11 @@ export interface RawPlayer {
   /** Human-readable stat rows for the player page, grouped by window. */
   statTables: StatTable[];
   /**
+   * Trailing-window stat lines per recent game, for the short chart ranges.
+   * Priced at ingest, once league calibration exists.
+   */
+  recentSeries?: Array<{ ts: string; line: StatLine }>;
+  /**
    * Recent games, when the provider already had them in hand.
    *
    * NBA and MLB read a per-game log to build their `recent` window, so the log
@@ -54,6 +59,14 @@ export interface StatTable {
 }
 
 export interface GameLogEntry {
+  /**
+   * What the trailing window ending at this game was worth.
+   *
+   * Filled in at ingest, once league calibration exists — a provider cannot
+   * know it, because pricing one athlete requires having measured all of them.
+   * This is what the short chart ranges are drawn from.
+   */
+  value?: number | null;
   date: string;
   opponent: string | null;
   homeAway: "home" | "away" | null;

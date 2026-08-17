@@ -348,9 +348,19 @@ function summarize(sport: "nba" | "mlb", g: Game, isPitcher: boolean): string {
 export interface RecentForm {
   recent: StatLine | null;
   games: GameLogEntry[];
+  /**
+   * One trailing-window stat line per recent game, newest first.
+   *
+   * A single game cannot be priced on its own — the shrinkage that keeps a
+   * two-game hot streak from repricing a career would flatten every point to
+   * replacement level. So each entry is the window *ending* at that game, which
+   * is the same quantity the `recent` line already represents, just evaluated
+   * at successive dates. Plotted, that reads as form over recent games.
+   */
+  series: Array<{ ts: string; line: StatLine }>;
 }
 
-const EMPTY: RecentForm = { recent: null, games: [] };
+const EMPTY: RecentForm = { recent: null, games: [], series: [] };
 
 /**
  * Recent form and a displayable game log, in one request.
@@ -393,9 +403,30 @@ export function recentFormFromDoc(
   const games = parseGames(doc);
   if (games.length === 0) return EMPTY;
 
-  const window = games.slice(0, RECENT_GAMES[sport]);
+  const size = RECENT_GAMES[sport];
+  const window = games.slice(0, size);
   const isPitcher = opts.isPitcher ?? false;
   const position = opts.position ?? "";
+  const lineFor = (batch: Game[]): StatLine =>
+    sport === "nba"
+      ? nbaLine(batch)
+      : sport === "nfl"
+        ? nflLine(batch, position)
+        : isPitcher
+          ? mlbPitcherLine(batch)
+          : mlbBatterLine(batch);
+
+  // Walk the window forward one game at a time. Capped so a long season does
+  // not put hundreds of points into a chart nobody zooms that far into.
+  const series: RecentForm["series"] = [];
+  for (let i = 0; i < Math.min(games.length, 30); i++) {
+    const batch = games.slice(i, i + size);
+    if (batch.length < Math.min(size, 2)) break;
+    const ts = games[i].date;
+    if (!ts) continue;
+    series.push({ ts, line: lineFor(batch) });
+  }
+
   const recent =
     sport === "nba"
       ? nbaLine(window)
@@ -407,6 +438,7 @@ export function recentFormFromDoc(
 
   return {
     recent: recent.gamesPlayed > 0 ? recent : null,
+    series,
     games: games.slice(0, opts.logLimit ?? 10).map((g) => ({
       date: g.date ?? "",
       opponent: g.opponent,

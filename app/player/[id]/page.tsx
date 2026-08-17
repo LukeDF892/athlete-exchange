@@ -140,7 +140,11 @@ export default async function PlayerPage(props: PageProps<"/player/[id]">) {
                 {player.careerValue.length} season{player.careerValue.length === 1 ? "" : "s"}
               </span>
             </div>
-            <CareerValueChart points={player.careerValue} currentValue={player.fairValue} />
+            <CareerValueChart
+              points={player.careerValue}
+              currentValue={player.fairValue}
+              games={player.gameLog}
+            />
             <p className="mt-3 text-xs leading-relaxed text-ink-400">
               What {player.firstName || player.fullName} would have been worth on this exchange at
               the end of each season, priced on that season&apos;s production at the age they were

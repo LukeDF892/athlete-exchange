@@ -13,13 +13,23 @@ import type { CareerValuePoint } from "@/lib/market/types";
  * rise, the peak and the decline before deciding whether the price is fair.
  */
 /**
- * Season windows.
+ * Two granularities, one quantity.
  *
- * Career value exists per season, because season stats are the granularity the
- * feeds report — there is no daily career value to show and inventing one would
- * be drawing numbers that were never measured. So the range selector picks how
- * many seasons to look at rather than a time resolution.
+ * Season stats are what the feeds report, so for years the only honest points
+ * were seasons — and the shortest range this chart could offer was three years.
+ * Asking it for "last week" had nothing to draw.
+ *
+ * Recent games close that gap. Each game log entry now carries the value of the
+ * trailing window ending that day, priced with the same fairValue() the season
+ * points use, so 1W and 1M are the *same measurement* at a finer grain rather
+ * than a different number sharing an axis. Ranges shorter than a week are not
+ * offered: one game is a point, not a trend, and most sports do not play daily.
  */
+const GAME_RANGES = [
+  { id: "1W", label: "1W", ms: 7 * 24 * 60 * 60 * 1000 },
+  { id: "1M", label: "1M", ms: 30 * 24 * 60 * 60 * 1000 },
+] as const;
+
 const SEASON_RANGES = [3, 5, 10, 0] as const;
 const RANGE_LABEL: Record<number, string> = { 3: "3Y", 5: "5Y", 10: "10Y", 0: "ALL" };
 
@@ -27,18 +37,44 @@ export function CareerValueChart({
   points: allPoints,
   currentValue,
   height = 220,
+  games = [],
 }: {
   points: CareerValuePoint[];
   /** Today's fair value, drawn as a reference line. */
   currentValue?: number;
   height?: number;
+  /** Recent games carrying a trailing-window value, newest first. */
+  games?: Array<{ date: string; summary: string; value?: number | null }>;
 }) {
   const [hover, setHover] = useState<number | null>(null);
   const [range, setRange] = useState<number>(0);
-  const points = useMemo(
+  /** A game range id when one is selected, otherwise seasons. */
+  const [gameRange, setGameRange] = useState<string | null>(null);
+
+  /** Games with a value, oldest first, so they plot left to right like seasons. */
+  const gamePoints = useMemo((): CareerValuePoint[] => {
+    const window = GAME_RANGES.find((r) => r.id === gameRange);
+    if (!window) return [];
+    const cutoff = Date.now() - window.ms;
+    return games
+      .filter((g) => g.value != null && new Date(g.date).getTime() >= cutoff)
+      .map((g) => ({
+        year: new Date(g.date).getTime(),
+        label: new Date(g.date).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+        teamAbbrev: null,
+        value: g.value as number,
+        gamesPlayed: 1,
+        summary: g.summary,
+      }))
+      .reverse();
+  }, [games, gameRange]);
+
+  const seasonPoints = useMemo(
     () => (range > 0 ? allPoints.slice(-range) : allPoints),
     [allPoints, range]
   );
+
+  const points = gameRange ? gamePoints : seasonPoints;
 
   const geom = useMemo(() => {
     if (points.length < 2) return null;
@@ -63,18 +99,41 @@ export function CareerValueChart({
     return { W, H, x, y, path, area: `${path} L${W},${H} L0,${H} Z`, lo, hi };
   }, [points, currentValue, height]);
 
+  // Only offered when there are actually games with values inside them, so a
+  // range can never be selected that has nothing to draw.
+  const availableGameRanges = GAME_RANGES.filter((r) => {
+    const cutoff = Date.now() - r.ms;
+    return games.filter((g) => g.value != null && new Date(g.date).getTime() >= cutoff).length >= 2;
+  });
+
   const rangeSelector = (
     <div className="flex rounded-lg border border-ink-700 bg-ink-850 p-0.5">
+      {availableGameRanges.map((r) => (
+        <button
+          key={r.id}
+          onClick={() => {
+            setGameRange(r.id);
+            setHover(null);
+          }}
+          aria-pressed={gameRange === r.id}
+          className={`rounded-md px-2 py-1 text-[11px] font-semibold uppercase transition-colors ${
+            gameRange === r.id ? "bg-ink-700 text-ink-50" : "text-ink-400 hover:text-ink-200"
+          }`}
+        >
+          {r.label}
+        </button>
+      ))}
       {SEASON_RANGES.filter((r) => r === 0 || r < allPoints.length).map((r) => (
         <button
           key={r}
           onClick={() => {
+            setGameRange(null);
             setRange(r);
             setHover(null);
           }}
-          aria-pressed={range === r}
+          aria-pressed={!gameRange && range === r}
           className={`rounded-md px-2 py-1 text-[11px] font-semibold transition-colors ${
-            range === r ? "bg-ink-700 text-ink-50" : "text-ink-400 hover:text-ink-200"
+            !gameRange && range === r ? "bg-ink-700 text-ink-50" : "text-ink-400 hover:text-ink-200"
           }`}
         >
           {RANGE_LABEL[r]}
@@ -208,7 +267,7 @@ export function CareerValueChart({
         <div className="flex items-center gap-3">
           <span className="flex items-center gap-1.5">
             <span className="inline-block h-0.5 w-4 rounded bg-accent" />
-            Value by season
+            {gameRange ? "Value by game" : "Value by season"}
           </span>
           {rangeSelector}
         </div>

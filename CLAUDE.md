@@ -105,11 +105,23 @@ and two thirds. Full three-league ingest: ~105-120s, against a 300s cron cap.
   the live board, working change columns and a real digest. The snapshot is now
   only a fallback for running without a database. Personal tables (profiles,
   holdings, trades, watchlist, portfolio_snapshots) stay gated.
-- **The `leaderboard` view is still readable by `anon`** — it runs
-  `security_invoker = false` so RLS never applies to it, and Supabase grants
-  public-schema views to `anon` by default. That exposes every username and net
-  worth without an account, which is broader than `/terms` promises. The fix is
-  the `revoke` at the bottom of 0013; it has NOT been applied.
+- **The `leaderboard` view needed an explicit `revoke`.** It runs
+  `security_invoker = false` so RLS never applies, and Supabase grants
+  public-schema views to `anon` by default — every username and net worth was
+  readable without an account. `revoke select ... from anon` (bottom of 0013)
+  is applied; anon now gets 42501. Any future view with `security_invoker =
+  false` needs the same treatment, because RLS will not do it for you.
+- **A league returning zero players is not a success.** A rate-limited NFL run
+  resolved with an empty roster, was not counted as failed, and silently erased
+  all 1,712 football listings from the snapshot. `runIngest` now treats an empty
+  league as missing and carries the previous one forward. The database was
+  unaffected, because the push is an upsert.
+- **Short chart ranges come from the game log.** Each `GameLogEntry` carries the
+  value of the trailing window ending that day, priced at ingest with the same
+  `fairValue()` the season points use — so 1W/1M are the same measurement at a
+  finer grain. Note `productionScore` clamps at 100, so a superstar on an
+  exceptional run flatlines at the top of the scale; that is the market's scale,
+  not a bug, and raising the clamp would reprice every listing.
 - **Client components must not import from modules that touch
   `lib/supabase/server`** — it drags `next/headers` into the browser bundle and
   breaks the build. Pure constants live in `lib/market/types.ts`.

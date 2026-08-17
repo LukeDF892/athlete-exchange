@@ -91,7 +91,7 @@ function toPlayer(
     prevClose: null,
     statTables: raw.statTables,
     // Already fetched alongside the recent-form window where a provider has one.
-    gameLog: raw.gameLog ?? [],
+    gameLog: withGameValues(raw, calibration),
     careerValue: buildCareerValue(raw, calibration),
     healthyFairValue: healthy,
     injury: injury
@@ -104,6 +104,37 @@ function toPlayer(
         }
       : null,
   };
+}
+
+/**
+ * Price each recent game so the performance chart can show short ranges.
+ *
+ * The career chart's points are seasons, so its shortest honest range was three
+ * years — asking it for "last week" had nothing to draw. Each game log entry
+ * now carries the value of the trailing window ending that day, evaluated with
+ * the same fairValue() the live market uses, so a short range is the same
+ * quantity as a long one measured at a finer grain rather than a different
+ * number wearing the same axis.
+ */
+function withGameValues(raw: RawPlayer, calibration: Calibration) {
+  const log = raw.gameLog ?? [];
+  const series = raw.recentSeries ?? [];
+  if (log.length === 0 || series.length === 0) return log;
+
+  const valueAt = new Map<string, number>();
+  for (const point of series) {
+    valueAt.set(
+      point.ts,
+      fairValue({
+        sport: raw.sport,
+        recent: point.line,
+        ageYears: raw.ageYears,
+        position: raw.position,
+        calibration,
+      })
+    );
+  }
+  return log.map((g) => ({ ...g, value: valueAt.get(g.date) ?? null }));
 }
 
 function round2(v: number): number {
@@ -414,7 +445,17 @@ export async function runIngest(options: IngestOptions = {}): Promise<IngestResu
   // erase that league from the public board. So carry the previous listings
   // forward, stale but present, which is strictly better than missing.
   const skipped = (["nhl", "nba", "mlb", "nfl"] as const).filter((s) => !runs(s));
-  const missing = [...new Set([...failedSports, ...skipped])];
+  // A league that returned zero players without throwing is missing too. That
+  // is not hypothetical: a rate-limited NFL run resolved successfully with an
+  // empty roster, counted as a success, and silently erased all 1,712 football
+  // listings from the snapshot because nothing marked it as failed.
+  const empty = (["nhl", "nba", "mlb", "nfl"] as const).filter(
+    (s) => runs(s) && raws.every((r) => r.sport !== s)
+  );
+  const missing = [...new Set([...failedSports, ...skipped, ...empty])];
+  if (empty.length > 0) {
+    console.warn(`[${empty.join(", ")}] returned no players — carrying yesterday's forward`);
+  }
   if (missing.length > 0) {
     // Deduped against what this run already produced. The draft step is not
     // scoped by league, so a single-league run rebuilds every prospect while

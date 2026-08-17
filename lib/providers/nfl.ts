@@ -368,7 +368,7 @@ export class NflProvider implements SportsProvider {
     const latest = seasons[seasons.length - 1];
     const careerLine = sumSeasons(seasons.slice(-4));
 
-    const form = await fetchRecentForm("nfl", athleteId, { position });
+    const form = await fetchRecentForm("nfl", athleteId, { position, logLimit: 25 });
 
     const statTables: StatTable[] = [
       ...(form.recent
@@ -404,6 +404,7 @@ export class NflProvider implements SportsProvider {
       careerSeasons: seasons,
       statTables,
       gameLog: form.games,
+      recentSeries: form.series,
     };
   }
 

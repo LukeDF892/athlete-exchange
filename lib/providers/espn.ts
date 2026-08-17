@@ -332,8 +332,8 @@ export class EspnProvider implements SportsProvider {
     // here; the NHL comes through its own provider with a richer feed.
     const form =
       this.sport === "nba"
-        ? await fetchRecentForm("nba", String(athlete.id))
-        : { recent: null, games: [] };
+        ? await fetchRecentForm("nba", String(athlete.id), { logLimit: 25 })
+        : { recent: null, games: [], series: [] };
 
     const statTables: StatTable[] = [
       ...(form.recent
@@ -372,6 +372,7 @@ export class EspnProvider implements SportsProvider {
       careerSeasons,
       statTables,
       gameLog: form.games,
+      recentSeries: form.series,
     };
   }
 

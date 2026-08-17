@@ -367,7 +367,7 @@ export class MlbProvider implements SportsProvider {
 
     // One request buys both the short-term window the price blend wants and
     // the per-game log the player page shows.
-    const form = await fetchRecentForm("mlb", String(athlete.id), { isPitcher });
+    const form = await fetchRecentForm("mlb", String(athlete.id), { isPitcher, logLimit: 25 });
 
     const statTables: StatTable[] = [
       ...(form.recent
@@ -407,6 +407,7 @@ export class MlbProvider implements SportsProvider {
       careerSeasons: seasons,
       statTables,
       gameLog: form.games,
+      recentSeries: form.series,
     };
   }
 
