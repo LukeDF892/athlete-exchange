@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { getLeaderboard } from "@/lib/market/portfolio";
 import { money, signedMoney, trendClass } from "@/lib/format";
@@ -80,9 +81,13 @@ export default async function LeaderboardPage() {
                     {/* Labelled, always. Nobody should wonder whether the
                         account beating them is a person. */}
                     {isBotUsername(r.username) && (
-                      <span className="rounded bg-ink-700 px-1.5 py-0.5 text-[10px] font-bold uppercase text-ink-300">
-                        bot
-                      </span>
+                      <Link
+                        href={`/trader/${encodeURIComponent(r.username)}`}
+                        className="rounded bg-ink-700 px-1.5 py-0.5 text-[10px] font-bold uppercase text-ink-300 transition-colors hover:bg-ink-600 hover:text-ink-100"
+                        title={`See what ${r.username} is holding`}
+                      >
+                        bot · positions
+                      </Link>
                     )}
                   </div>
                   <div className={`tnum mt-0.5 text-xs ${trendClass(profit)}`}>
@@ -107,13 +112,15 @@ export default async function LeaderboardPage() {
       </Card>
 
       <p className="mt-3 text-xs text-ink-400">
-        Net worth is cash plus the market value of every position. Only usernames and net worth are
-        shared — nobody can see what anyone else holds. Accounts marked{" "}
+        Net worth is cash plus the market value of every position. For people, only usernames and
+        net worth are shared — nobody can see what another trader holds, and the database enforces
+        that rather than the interface. Accounts marked{" "}
         <span className="rounded bg-ink-700 px-1 py-0.5 text-[10px] font-bold uppercase text-ink-300">
           bot
         </span>{" "}
         are automated traders that buy and sell every day to keep the market moving. They follow the
-        same rules everyone else does — same position limits, same prices, no special access.
+        same rules everyone else does — same position limits, same prices, no special access — and
+        because they are not people, you can click one to see exactly what it is holding.
       </p>
     </div>
   );
