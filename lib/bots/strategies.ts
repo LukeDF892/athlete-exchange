@@ -27,6 +27,16 @@ export interface BotOrder {
   playerId: string;
   side: "buy" | "sell";
   shares: number;
+  /**
+   * Whether this sell closes a position or opens a short.
+   *
+   * `execute_trade` turns an unbacked sell into a short, so without this a bot
+   * that tried to close a position it had already closed opened one by
+   * accident — which is exactly what happened. The runner requires holdings for
+   * a "close" and requires their absence for an "open", so the accident stays
+   * impossible while deliberate shorting becomes available.
+   */
+  intent: "close" | "open";
   /** Why, for the run log — makes a weird market explainable afterwards. */
   reason: string;
 }
@@ -105,11 +115,28 @@ export function decide(strategy: Strategy, view: BotView, rng: () => number): Bo
     .map(([id, shares]) => ({ player: view.players.find((p) => p.id === id), shares }))
     .filter((h): h is { player: Player; shares: number } => h.player != null && h.shares > 0);
 
+  /**
+   * A premium only counts if it was already there this morning.
+   *
+   * Bots were reacting to the instantaneous price, which on this curve moves
+   * the moment anyone buys — so a human purchase manufactured a sell signal for
+   * the largest cohort of bots and their own market impact was arbitraged away
+   * within one slot. Measuring the *opening* price as well means a bot responds
+   * to a listing that has stayed expensive, not to the footprint of whoever
+   * just traded it.
+   */
+  const persistentPremium = (p: Player): number => {
+    if (p.fairValue <= 0) return 0;
+    const now = ((p.marketPrice - p.fairValue) / p.fairValue) * 100;
+    if (p.prevClose == null || p.prevClose <= 0) return now;
+    const atOpen = ((p.prevClose - p.fairValue) / p.fairValue) * 100;
+    // The smaller of the two: a price that only just spiked has a small
+    // opening premium and therefore does not trigger.
+    return Math.min(now, atOpen);
+  };
+
   for (const h of holdings) {
-    const premium =
-      h.player.fairValue > 0
-        ? ((h.player.marketPrice - h.player.fairValue) / h.player.fairValue) * 100
-        : 0;
+    const premium = persistentPremium(h.player);
     const drop = view.change[h.player.id] ?? 0;
 
     /**
@@ -144,7 +171,7 @@ export function decide(strategy: Strategy, view: BotView, rng: () => number): Bo
       // Partial exits: a bot that always sells everything makes prices step
       // rather than move.
       const shares = Math.max(1, Math.floor(h.shares * (0.4 + rng() * 0.6)));
-      orders.push({ playerId: h.player.id, side: "sell", shares, reason });
+      orders.push({ playerId: h.player.id, side: "sell", shares, intent: "close", reason });
     }
     if (orders.length >= count) return orders;
   }
@@ -173,6 +200,41 @@ export function decide(strategy: Strategy, view: BotView, rng: () => number): Bo
     pool = tradeable;
   }
 
+  /**
+   * Value bots short what has run far above performance value.
+   *
+   * Long-only bots can only ever push prices up, which is why the board drifted
+   * and why nothing applied downward pressure to an overpriced listing except a
+   * bot that happened to already own it. A bot that can sell something it does
+   * not own behaves like a trader rather than a one-way bid.
+   *
+   * Gated on the *persistent* premium for the same reason as selling: shorting
+   * the price someone just moved is fading their footprint, not the market.
+   */
+  if (strategy === "value" && orders.length < count) {
+    const rich = tradeable
+      .filter((p) => (view.held.get(p.id) ?? 0) === 0 && persistentPremium(p) > 15)
+      .sort((a, b) => persistentPremium(b) - persistentPremium(a))
+      .slice(0, 20);
+    const target = pick(rng, rich);
+    if (target) {
+      // Collateral is 1.5x proceeds, so size against buying power, not cash.
+      const spend = Math.min(budget * 0.5, 1200 + rng() * 4000);
+      const cap = positionLimit(target.liquidityDepth);
+      const shares = sharesForBudget(target, spend, cap);
+      if (shares > 0) {
+        orders.push({
+          playerId: target.id,
+          side: "sell",
+          shares,
+          intent: "open",
+          reason: `${persistentPremium(target).toFixed(1)}% above performance value, shorting it`,
+        });
+        budget -= spend;
+      }
+    }
+  }
+
   while (orders.length < count && budget > 50 && pool.length > 0) {
     const player = pick(rng, pool);
     if (!player) break;
@@ -190,6 +252,7 @@ export function decide(strategy: Strategy, view: BotView, rng: () => number): Bo
       playerId: player.id,
       side: "buy",
       shares,
+      intent: "open",
       reason:
         strategy === "momentum"
           ? `up ${(view.change[player.id] ?? 0).toFixed(1)}%`

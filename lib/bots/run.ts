@@ -180,16 +180,22 @@ export async function runBots(options: RunOptions = {}): Promise<BotRunResult> {
       };
 
       /**
-       * Close any short first, before anything else this bot does.
+       * Cover shorts that have gone wrong, before anything else.
        *
-       * Bots are meant to be long-only. They ended up holding five shorts
-       * anyway, because `execute_trade` turns a sell with no position into a
-       * short — so any drift between what a bot thought it held and what the
-       * database held (two slots overlapping, a position closed moments
-       * earlier) silently opened one. Covering here means such a position
-       * cannot survive, whatever caused it.
+       * Bots may now short deliberately, so a negative position is no longer
+       * automatically a bug. What is still worth closing is one that has moved
+       * against the bot: covering here caps the damage the way a trader with a
+       * stop would, and keeps the accidental ones from surviving either.
        */
-      const shorts = [...view.held.entries()].filter(([, n]) => n < 0);
+      const shorts = [...view.held.entries()].filter(([id, n]) => {
+        if (n >= 0) return false;
+        const p = players.find((pl) => pl.id === id);
+        // Cover once the price has run 10% past where the short was opened,
+        // or whenever the listing has fallen back to fair value and the trade
+        // has done its job.
+        if (!p) return true;
+        return p.fairValue > 0 && p.marketPrice <= p.fairValue * 1.02;
+      });
       for (const [playerId, n] of shorts) {
         const { error } = await client.rpc("execute_trade", {
           p_player_id: playerId,
@@ -202,7 +208,7 @@ export async function runBots(options: RunOptions = {}): Promise<BotRunResult> {
         }
         result.ordersPlaced++;
         view.held.delete(playerId);
-        result.log.push(`${bot.username} cover ${Math.abs(n)} — bots do not hold shorts`);
+        result.log.push(`${bot.username} cover ${Math.abs(n)} — back to fair value`);
       }
 
       for (const order of decide(bot.strategy, view, rng)) {
@@ -221,8 +227,17 @@ export async function runBots(options: RunOptions = {}): Promise<BotRunResult> {
             .eq("player_id", order.playerId)
             .maybeSingle();
           const heldNow = Number(cur?.shares ?? 0);
-          if (heldNow <= 0) continue;
-          order.shares = Math.min(order.shares, heldNow);
+
+          if (order.intent === "close") {
+            // Closing requires something to close. This is the guard that keeps
+            // an accidental short impossible: if the position is already gone,
+            // the order is dropped rather than becoming a short.
+            if (heldNow <= 0) continue;
+            order.shares = Math.min(order.shares, heldNow);
+          } else if (heldNow !== 0) {
+            // Opening a short requires a flat position — never cross zero.
+            continue;
+          }
         }
 
         const { data, error } = await client.rpc("execute_trade", {

@@ -33,14 +33,16 @@ export interface BotIdentity {
  * a quiet listing could go days untouched. Thirty wakes seven or eight per slot,
  * so the board ticks over continuously rather than in visible bursts.
  *
- * The mix is deliberately value-heavy rather than an even split. Value bots are
- * the ones that *sell* into a premium, and the first week of real trading ran
- * 158 buys to 12 sells — momentum and noise both accumulate, so adding them in
- * equal measure would have made the upward drift worse rather than better.
+ * The mix was value-heavy to fix an early 158-buys-to-12-sells imbalance, and
+ * overshot: with value bots the largest cohort, the market's dominant reflex
+ * became fading whatever had just moved, so a human's own market impact was
+ * arbitraged away within a slot. Now roughly even between momentum and value —
+ * buying sometimes begets buying — and value bots can short, which gives them a
+ * way to press an overpriced listing without needing to own it first.
  */
 const ROSTER: Strategy[] = [
-  ...Array<Strategy>(9).fill("momentum"),
-  ...Array<Strategy>(14).fill("value"),
+  ...Array<Strategy>(12).fill("momentum"),
+  ...Array<Strategy>(11).fill("value"),
   ...Array<Strategy>(7).fill("noise"),
 ];
 

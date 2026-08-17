@@ -538,6 +538,51 @@ test("a bot will not buy past the position limit it already sits at", () => {
   );
 });
 
+test("every order says whether it closes a position or opens one", () => {
+  const rich = listing({ id: "rich", fairValue: 100, marketPrice: 140, prevClose: 138, sharesOutstanding: 300 });
+  const orders = decide(
+    "value",
+    { players: [rich], change: {}, held: new Map([["rich", 50]]), cash: 50_000 },
+    makeRng(9)
+  );
+  for (const o of orders) {
+    assert.ok(o.intent === "close" || o.intent === "open", `order has no intent: ${o.reason}`);
+    // A sell against a held position must be a close, never an accidental short.
+    if (o.side === "sell" && o.playerId === "rich" && o.intent === "close") {
+      assert.ok(o.shares <= 50, "would sell more than held");
+    }
+  }
+});
+
+test("a value bot shorts what has stayed far above performance value", () => {
+  // Expensive at the open as well as now, so it is not just a fresh spike.
+  const overpriced = listing({ id: "hot", fairValue: 100, marketPrice: 160, prevClose: 158, sharesOutstanding: 400 });
+  const orders = decide(
+    "value",
+    { players: [overpriced], change: {}, held: new Map(), cash: 100_000 },
+    makeRng(4)
+  );
+  const short = orders.find((o) => o.side === "sell" && o.intent === "open");
+  assert.ok(short, "expected a short on a listing 60% above performance value");
+  assert.ok(short!.shares > 0);
+});
+
+test("a price that only just spiked is not faded", () => {
+  // Now 60% above fair value, but it opened at fair value — this is somebody's
+  // buy from moments ago, not a listing the market has held up.
+  const justMoved = listing({ id: "spike", fairValue: 100, marketPrice: 160, prevClose: 100, sharesOutstanding: 400 });
+  const orders = decide(
+    "value",
+    { players: [justMoved], change: {}, held: new Map([["spike", 40]]), cash: 0 },
+    makeRng(5)
+  );
+  assert.equal(
+    orders.filter((o) => o.side === "sell").length,
+    0,
+    "sold into a move that had only just happened"
+  );
+});
+
 test("bot trading is spread across the day, not fired all at once", () => {
   const roster = botRoster();
 
