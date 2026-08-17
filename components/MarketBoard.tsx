@@ -14,6 +14,7 @@ import { money, signedMoney, signedPct, trendClass } from "@/lib/format";
 import { PlayerAvatar, SportBadge } from "@/components/ui";
 
 import { Sparkline } from "@/components/PriceChart";
+import { useLivePrices } from "@/components/useLivePrices";
 
 /**
  * Rows rendered at once.
@@ -102,6 +103,19 @@ export function MarketBoard({
   const [desc, setDesc] = useState(true);
 
   /**
+   * Live prices over a websocket.
+   *
+   * The hook existed but nothing imported it, so the board only ever showed the
+   * price as it was when the page was server-rendered — a trade by a bot or a
+   * friend was invisible until you reloaded. Supabase already publishes
+   * `players` changes; this just listens.
+   *
+   * Server-rendered values stay authoritative for anything that has not moved
+   * since mount, so a listing nobody trades never depends on the socket.
+   */
+  const live = useLivePrices(true);
+
+  /**
    * Optimistic selection for the change window.
    *
    * `changeWindow` arrives from the server, so it only updates once the new
@@ -118,7 +132,18 @@ export function MarketBoard({
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
-    let list = players;
+    let list = Object.keys(live).length
+      ? players.map((p) =>
+          live[p.id]
+            ? {
+                ...p,
+                marketPrice: live[p.id].marketPrice,
+                fairValue: live[p.id].fairValue,
+                sharesOutstanding: live[p.id].sharesOutstanding,
+              }
+            : p
+        )
+      : players;
 
     if (sport !== "all") list = list.filter((p) => p.sport === sport);
     if (q) {
@@ -156,7 +181,7 @@ export function MarketBoard({
     }
     if (!desc) sorted.reverse();
     return sorted;
-  }, [players, query, sport, sort, changes, desc]);
+  }, [players, query, sport, sort, changes, desc, live]);
 
   const shown = rows.slice(0, visible);
 

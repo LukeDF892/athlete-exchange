@@ -36,11 +36,15 @@ interface Props {
  * happened this week" is information, and silently falling back to a wider
  * window would misrepresent when the trading occurred.
  */
+const DAY = 24 * 60 * 60 * 1000;
+
 const TIME_RANGES = [
-  { id: "1D", label: "1D", ms: 24 * 60 * 60 * 1000 },
-  { id: "1W", label: "1W", ms: 7 * 24 * 60 * 60 * 1000 },
-  { id: "1M", label: "1M", ms: 30 * 24 * 60 * 60 * 1000 },
-  { id: "1Y", label: "1Y", ms: 365 * 24 * 60 * 60 * 1000 },
+  { id: "1D", label: "1D", ms: DAY },
+  { id: "1W", label: "1W", ms: 7 * DAY },
+  { id: "1M", label: "1M", ms: 30 * DAY },
+  { id: "1Y", label: "1Y", ms: 365 * DAY },
+  { id: "3Y", label: "3Y", ms: 3 * 365 * DAY },
+  { id: "5Y", label: "5Y", ms: 5 * 365 * DAY },
   { id: "ALL", label: "ALL", ms: Infinity },
 ] as const;
 
@@ -106,9 +110,24 @@ export function PriceChart({
     };
   }, [points, showFairValue, height]);
 
+  /**
+   * Ranges are hidden until there is history to fill them.
+   *
+   * This chart is made of real trades, so it can only reach back as far as the
+   * exchange itself. Offering 5Y on a market that opened last week gives a
+   * button that always draws an empty box — worse than not offering it, because
+   * it reads as a bug rather than as a young market.
+   */
+  const span = allPoints.length > 1
+    ? new Date(allPoints[allPoints.length - 1].ts).getTime() - new Date(allPoints[0].ts).getTime()
+    : 0;
+  const offered = TIME_RANGES.filter(
+    (r, i) => r.ms === Infinity || span >= r.ms || (i > 0 && span >= TIME_RANGES[i - 1].ms)
+  );
+
   const rangeSelector = (
     <div className="flex rounded-lg border border-ink-700 bg-ink-850 p-0.5">
-      {TIME_RANGES.map((r) => {
+      {offered.map((r) => {
         const cutoff = Date.now() - r.ms;
         const covered =
           r.ms === Infinity || allPoints.some((p) => new Date(p.ts).getTime() >= cutoff);
@@ -139,10 +158,14 @@ export function PriceChart({
   if (!geom) {
     return (
       <div
-        className="flex items-center justify-center rounded-xl border border-ink-700 bg-ink-850 text-sm text-ink-400"
+        className="flex flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-ink-700 bg-ink-850 px-6 text-center"
         style={{ height }}
       >
-        Not enough price history yet
+        <span className="text-sm text-ink-300">No trades yet</span>
+        <span className="max-w-sm text-xs leading-relaxed text-ink-500">
+          This line is drawn from real trades, so it starts the moment someone buys. Performance
+          value above already goes back years — that chart is the one to read on a new listing.
+        </span>
       </div>
     );
   }
