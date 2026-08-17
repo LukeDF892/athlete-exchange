@@ -220,7 +220,7 @@ export function MarketBoard({
           />
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 [&>div]:max-w-full [&>div]:overflow-x-auto">
           <div className="flex rounded-lg border border-ink-700 bg-ink-850 p-0.5">
             {(["all", "nfl", "nba", "nhl", "mlb"] as const).map((s) => (
               <button

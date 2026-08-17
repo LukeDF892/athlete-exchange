@@ -23,7 +23,14 @@ export function NavTabs({ signedIn = false }: { signedIn?: boolean }) {
   const pathname = usePathname();
 
   return (
-    <nav className="flex items-center gap-1" aria-label="Main">
+    // Scrolls sideways rather than pushing the page wider. Five tabs plus the
+    // sign-in button overflowed a 390px phone by 45px, which made the whole
+    // document scroll horizontally — the header is sticky, so it took the
+    // board with it.
+    <nav
+      className="flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      aria-label="Main"
+    >
       {TABS.map((tab) => {
         const active = tab.href === "/" ? pathname === "/" : pathname.startsWith(tab.href);
         return (

@@ -1,5 +1,9 @@
 import { getPlayers, getNews } from "@/lib/market/source";
 import { MarketBoard } from "@/components/MarketBoard";
+import { TradeTape } from "@/components/TradeTape";
+import { GettingStarted } from "@/components/GettingStarted";
+import { getTradeTape } from "@/lib/market/tape";
+import { isSignedIn } from "@/lib/market/portfolio";
 import { EmptyState, StatTile } from "@/components/ui";
 import { money, signedPct } from "@/lib/format";
 import { marketIndexPct, toMarketRow } from "@/lib/market/types";
@@ -41,7 +45,11 @@ export default async function MarketPage(props: PageProps<"/">) {
   const mlb = players.filter((p) => p.sport === "mlb").length;
   const nfl = players.filter((p) => p.sport === "nfl").length;
   const priciest = [...players].sort((a, b) => b.marketPrice - a.marketPrice)[0] as Player;
-  const changes = await getPriceChanges(players, changeWindow);
+  const [changes, tape, signedIn] = await Promise.all([
+    getPriceChanges(players, changeWindow),
+    getTradeTape(12),
+    isSignedIn(),
+  ]);
   const indexPct = marketIndexPct(players);
   const tradedCount = players.filter((p) => p.sharesOutstanding > 0).length;
 
@@ -57,6 +65,8 @@ export default async function MarketPage(props: PageProps<"/">) {
           Hold a career, not a bet.
         </p>
       </section>
+
+      {!signedIn && <GettingStarted />}
 
       <section className="mb-7 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatTile
@@ -82,6 +92,8 @@ export default async function MarketPage(props: PageProps<"/">) {
           tone={indexPct > 0 ? "up" : indexPct < 0 ? "down" : "neutral"}
         />
       </section>
+
+      <TradeTape entries={tape} />
 
       <MarketBoard
         players={players.map(toMarketRow)}

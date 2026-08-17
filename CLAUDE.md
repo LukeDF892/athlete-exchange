@@ -198,6 +198,16 @@ and two thirds. Full three-league ingest: ~105-120s, against a 300s cron cap.
   user may write on their own profile is `username`. When adding a column to
   `profiles`, decide explicitly whether that policy should let it through.
 
+- **Check mobile by measuring, not by looking.** The board rendered fine in a
+  narrow screenshot while the document scrolled sideways 336px at 390px wide:
+  the nav (five tabs plus Sign in) and the market filter row both overflowed,
+  and because the header is sticky it dragged the whole page with it. Measure
+  `documentElement.scrollWidth - clientWidth`; it should be 0.
+- **`trade_tape` publishes less than `trades` does.** Share counts and listings
+  are market information, the cash each trade moved is not — so `net` is absent
+  from the view entirely rather than merely unselected. It is another
+  `security_invoker = false` view, so its grant is explicit.
+
 ## This machine
 
 - **Disk runs at 95-100% full.** `npm install` and builds fail with `ENOSPC`,

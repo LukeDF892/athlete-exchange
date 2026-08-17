@@ -112,17 +112,32 @@ export function decide(strategy: Strategy, view: BotView, rng: () => number): Bo
         : 0;
     const drop = view.change[h.player.id] ?? 0;
 
+    /**
+     * Thresholds loosened after the first days of real trading.
+     *
+     * The opening set (premium > 12%, drop < -6%, 25% noise) produced 158 buys
+     * against 12 sells. Bots that almost never sell are not making a market,
+     * they are a one-way bid — and because every buy walks a price up the
+     * curve, the whole board drifts upward and everyone looks like a genius.
+     * These are the same rules, just triggered where a real trader would act
+     * rather than only at extremes.
+     */
     let sell = false;
     let reason = "";
-    if (strategy === "value" && premium > 12) {
+    if (strategy === "value" && premium > 6) {
       sell = true;
       reason = `trading ${premium.toFixed(1)}% above performance value`;
-    } else if (strategy === "momentum" && drop < -6) {
+    } else if (strategy === "momentum" && drop < -3) {
       sell = true;
       reason = `momentum broke, down ${drop.toFixed(1)}%`;
-    } else if (strategy === "noise" && rng() < 0.25) {
+    } else if (strategy === "noise" && rng() < 0.4) {
       sell = true;
       reason = "no particular reason";
+    } else if (premium > 20) {
+      // Any bot takes a profit that large. Leaving a listing 20% above its
+      // performance value unsold is how a price detaches for good.
+      sell = true;
+      reason = `taking profit, ${premium.toFixed(1)}% above performance value`;
     }
 
     if (sell) {
