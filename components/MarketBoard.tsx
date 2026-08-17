@@ -6,6 +6,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { MarketRow } from "@/lib/market/types";
 import {
   marketPremiumPct,
+  dayChangePct,
   CHANGE_WINDOWS,
   type ChangeWindow,
   type PriceChange,
@@ -26,7 +27,7 @@ import { useLivePrices } from "@/components/useLivePrices";
  */
 const PAGE_SIZE = 100;
 
-type SortKey = "price" | "name" | "premium" | "value" | "change";
+type SortKey = "price" | "name" | "premium" | "value" | "change" | "dayopen";
 type SportFilter = "all" | "nba" | "nhl" | "mlb" | "nfl";
 
 interface Props {
@@ -167,6 +168,9 @@ export function MarketBoard({
         return sorted;
       case "premium":
         sorted.sort((a, b) => marketPremiumPct(b) - marketPremiumPct(a));
+        break;
+      case "dayopen":
+        sorted.sort((a, b) => (dayChangePct(b) ?? -Infinity) - (dayChangePct(a) ?? -Infinity));
         break;
       case "change":
         sorted.sort(
@@ -348,7 +352,8 @@ export function MarketBoard({
           >
             <option value="price">Price</option>
             <option value="value">Performance value</option>
-            <option value="premium">Premium vs market</option>
+            <option value="premium">Gap to performance</option>
+            <option value="dayopen">Move since open</option>
             <option value="change">Change</option>
             <option value="name">Name</option>
           </select>
@@ -359,7 +364,7 @@ export function MarketBoard({
         <div className="hidden grid-cols-[1fr_88px_92px_92px_104px_88px] items-center gap-3 border-b border-ink-750 bg-ink-875 px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-ink-400 md:grid">
           <div>Athlete</div>
           <div className="text-right">Performance</div>
-          <div className="text-right">Premium</div>
+          <div className="text-right">vs Open</div>
           <div className="text-right">Change</div>
           <div className="text-right">Price</div>
           <div className="text-right">Trend</div>
@@ -382,6 +387,7 @@ export function MarketBoard({
               // above performance is a premium, and it is green. The index tile
               // in the header carries the market-wide context instead.
               const premium = marketPremiumPct(p);
+              const dayMove = dayChangePct(p);
               return (
                 <li key={p.id}>
                   <Link
@@ -407,18 +413,28 @@ export function MarketBoard({
                       </div>
                     </div>
 
-                    <div className="tnum hidden text-right text-sm text-ink-300 md:block">
-                      {money(p.fairValue)}
+                    {/* Performance value, with the gap between it and the price
+                        underneath — that gap used to own its own column, and
+                        moving it here frees that column for the day's move
+                        without losing the model's core signal. */}
+                    <div className="hidden text-right md:block">
+                      <div className="tnum text-sm text-ink-300">{money(p.fairValue)}</div>
+                      <div
+                        className={`tnum text-[11px] ${
+                          p.sharesOutstanding > 0 ? trendClass(premium) : "text-ink-600"
+                        }`}
+                      >
+                        {p.sharesOutstanding > 0 ? `${signedPct(premium)} vs price` : "at open"}
+                      </div>
                     </div>
 
-                    {/* Untraded athletes sit exactly at their opening price. A
-                        column of literal 0.00% reads as a bug, so say so. */}
-                    <div
-                      className={`hidden text-right text-sm md:block ${
-                        p.sharesOutstanding > 0 ? `tnum ${trendClass(premium)}` : "text-ink-500"
-                      }`}
-                    >
-                      {p.sharesOutstanding > 0 ? signedPct(premium) : "at open"}
+                    {/* Where the price sits against where it opened today. */}
+                    <div className="hidden text-right text-sm md:block">
+                      {dayMove == null ? (
+                        <span className="text-ink-600">—</span>
+                      ) : (
+                        <span className={`tnum ${trendClass(dayMove)}`}>{signedPct(dayMove)}</span>
+                      )}
                     </div>
 
                     <div className="hidden text-right md:block">{(() => {

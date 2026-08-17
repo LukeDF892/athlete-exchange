@@ -122,8 +122,17 @@ export interface Portfolio {
   holdings: Holding[];
 }
 
-/** Percent change of market price against the previous close. */
-export function dayChangePct(player: Player): number | null {
+/**
+ * Percent change of market price against the previous close.
+ *
+ * Typed to the two fields it reads rather than to `Player`, so the market board
+ * can call it with a `MarketRow` — the trimmed shape it sends to the browser to
+ * keep the homepage from shipping full records for five thousand listings.
+ */
+export function dayChangePct(player: {
+  marketPrice: number;
+  prevClose: number | null;
+}): number | null {
   if (player.prevClose == null || player.prevClose <= 0) return null;
   return ((player.marketPrice - player.prevClose) / player.prevClose) * 100;
 }
@@ -148,6 +157,14 @@ export interface MarketRow {
   ageYears: number | null;
   fairValue: number;
   marketPrice: number;
+  /**
+   * Yesterday's close, which is today's open.
+   *
+   * Added so the board can show how far a price has moved *today* rather than
+   * only how far it sits from performance value — the row shape was the reason
+   * that comparison did not exist, not the maths.
+   */
+  prevClose: number | null;
   sharesOutstanding: number;
   /** Present when injured, so the board can flag it. */
   injuryStatus: string | null;
@@ -167,6 +184,7 @@ export function toMarketRow(p: Player): MarketRow {
     ageYears: p.ageYears,
     fairValue: p.fairValue,
     marketPrice: p.marketPrice,
+    prevClose: p.prevClose,
     sharesOutstanding: p.sharesOutstanding,
     injuryStatus: p.injury?.status ?? null,
     kind: p.kind,
