@@ -255,6 +255,44 @@ and two thirds. Full three-league ingest: ~105-120s, against a 300s cron cap.
   twelve bots at ~$180,000 against a $100,000 start. Balances belong to
   `reset:market`.
 
+- **Bots trade continuously, not in bursts.** Two earlier attempts shrank the
+  burst without changing its shape, because the loop was "for each bot, sign in
+  and fire all its orders" — that empties a slot in seconds however many slots
+  exist. `runBots` now gathers every bot's intentions first, interleaves them so
+  consecutive orders come from different traders, and executes one at a time
+  across a 240s window. Measured: 11 orders over 222s, a steady 22s apart.
+  `SLOT_TIMES` is 90 firing points every ten minutes (11:00-01:50 UTC), each
+  naming its own slot in the cron query string — Hobby fires a job anywhere
+  inside its hour, so inferring the batch from the clock lets jitter pick the
+  wrong one. 94 crons against Hobby's 100 is why the day ends at 02:00.
+  Covering a losing short is exempt from the spreading: a stop that waits four
+  minutes is not a stop.
+- **`/games` uses the scoreboard endpoint, not the per-team schedule.** Building
+  "what is on tonight" from per-team feeds is ~130 requests for one page; the
+  scoreboard returns a league's whole day in one. Team pages read injuries off
+  the player row so what is shown is the injury the price was discounted for.
+
+## Where things stand
+
+Everything below is deployed and committed. Two things are known broken:
+
+1. **Per-game chart values are missing for NHL and for stale rows.** The career
+   chart's 1W/1M ranges need `gameLog[].value`, which only exists where a
+   provider sets `recentSeries`. `lib/providers/nhl.ts` never does, so no NHL
+   player has them; anything ingested before that feature shipped lacks them
+   too. Fix: give the NHL provider a series from its landing feed's
+   `last5Games`, then re-ingest all four leagues.
+2. **Live updates only cover the market board.** `useLivePrices` is imported by
+   `MarketBoard` and nothing else, and was never verified on screen. The player
+   page price, the position panel and both trade tapes are server-rendered and
+   never move. `players` and `trades` are both in the `supabase_realtime`
+   publication, so the plumbing is there — the components just do not listen.
+   Verify by watching a value change during a bot slot, not by assuming.
+
+Also outstanding, needing the user rather than code: `gh` is not installed so
+the repo has no remote; email needs a Resend key (`RESEND_API_KEY` +
+`DIGEST_FROM`); and five sibling projects in this folder are still unversioned.
+
 ## This machine
 
 - **Disk runs at 95-100% full.** `npm install` and builds fail with `ENOSPC`,
