@@ -58,12 +58,19 @@ async function main() {
       console.log(`  ${bot.username.padEnd(20)} created`);
     }
 
-    // The signup trigger creates the profile row, but it reads the username
-    // from metadata only at creation — so set it explicitly, and top the
-    // balance back up in case this is a post-reset run.
+    /**
+     * Only ever set the username here — never the balance.
+     *
+     * This used to also write `cash_balance: 100000` on every run, for every
+     * bot, on the theory that it was "topping up after a reset". It was in fact
+     * handing free money to any bot that already held positions: cash restored
+     * to full while the holdings stayed, so twelve bots ended up at ~$180,000 of
+     * net worth against a $100,000 start. Balances belong to the market and to
+     * `reset:market`, not to a seeding script.
+     */
     const { error: upErr } = await db
       .from("profiles")
-      .update({ username: bot.username, cash_balance: 100000 })
+      .update({ username: bot.username })
       .eq("id", userId);
     if (upErr) throw new Error(`${bot.username} profile: ${upErr.message}`);
   }

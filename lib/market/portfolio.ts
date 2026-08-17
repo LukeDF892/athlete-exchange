@@ -52,6 +52,14 @@ export interface TradeRecord {
   headshotUrl: string | null;
   /** Realized profit or loss on a sale; null for a purchase. */
   realized: number | null;
+  /**
+   * What the trade actually was: buy, sell, short or cover.
+   *
+   * `side` alone is ambiguous once shorting exists — a "sell" is either taking
+   * profit on a long or *opening* a short, and those are opposite things. The
+   * activity list was reading the borrowed proceeds of a short as money earned.
+   */
+  action: "buy" | "sell" | "short" | "cover";
 }
 
 export async function getTradingContext(playerId: string): Promise<TradingContext> {
@@ -229,7 +237,7 @@ export async function getTrades(limit = 50, playerId?: string): Promise<TradeRec
 
   let query = supabase
     .from("trades")
-    .select("id, side, shares, avg_price, net, created_at, player_id, players(full_name, sport, headshot_url)")
+    .select("id, side, action, shares, avg_price, net, created_at, player_id, players(full_name, sport, headshot_url)")
     .eq("user_id", user.id)
     .order("created_at", { ascending: true });
   if (playerId) query = query.eq("player_id", playerId);
@@ -245,6 +253,7 @@ export async function getTrades(limit = 50, playerId?: string): Promise<TradeRec
   for (const t of data as unknown as Array<{
     id: string;
     side: "buy" | "sell";
+    action: "buy" | "sell" | "short" | "cover" | null;
     shares: number;
     avg_price: number;
     net: number;
@@ -257,15 +266,44 @@ export async function getTrades(limit = 50, playerId?: string): Promise<TradeRec
     const net = Number(t.net);
     const prev = basis.get(t.player_id) ?? { shares: 0, avgCost: 0 };
 
+    /**
+     * Only *closing* a position realizes anything.
+     *
+     * Rows written before shorting existed have no `action`, so fall back to
+     * `side` — which is correct for them, because every one of them was a long.
+     *
+     * The bug this replaces: a short open is a `sell` with no prior position, so
+     * `prev.avgCost` was 0 and `realized` came out as the entire proceeds. The
+     * activity list therefore reported the borrowed cash as profit on a position
+     * that had only just been opened.
+     */
+    const action = t.action ?? t.side;
     let realized: number | null = null;
-    if (t.side === "buy") {
+
+    if (action === "buy") {
+      const total = prev.shares + shares;
+      basis.set(t.player_id, {
+        shares: total,
+        avgCost: total > 0 ? (prev.shares * prev.avgCost + shares * avgPrice) / total : 0,
+      });
+    } else if (action === "sell") {
+      realized = net - shares * prev.avgCost;
+      basis.set(t.player_id, {
+        shares: Math.max(0, prev.shares - shares),
+        avgCost: prev.avgCost,
+      });
+    } else if (action === "short") {
+      // Opening. `shares` is tracked as the size of the short and avgCost as
+      // the price it was opened at, so a later cover can be measured.
       const total = prev.shares + shares;
       basis.set(t.player_id, {
         shares: total,
         avgCost: total > 0 ? (prev.shares * prev.avgCost + shares * avgPrice) / total : 0,
       });
     } else {
-      realized = net - shares * prev.avgCost;
+      // Covering: profit is what you were paid to open minus what buying back
+      // cost — the mirror image of selling a long.
+      realized = shares * prev.avgCost - net;
       basis.set(t.player_id, {
         shares: Math.max(0, prev.shares - shares),
         avgCost: prev.avgCost,
@@ -275,6 +313,7 @@ export async function getTrades(limit = 50, playerId?: string): Promise<TradeRec
     out.push({
       id: String(t.id),
       side: t.side,
+      action: (t.action ?? t.side) as TradeRecord["action"],
       shares,
       avgPrice,
       net,

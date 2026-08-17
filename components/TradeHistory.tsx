@@ -50,10 +50,12 @@ export function TradeHistory({ trades, title = "Activity" }: { trades: TradeReco
             >
               <span
                 className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
-                  t.side === "buy" ? "bg-up-dim text-up" : "bg-down-dim text-down"
+                  t.action === "buy" || t.action === "cover"
+                    ? "bg-up-dim text-up"
+                    : "bg-down-dim text-down"
                 }`}
               >
-                {t.side}
+                {t.action}
               </span>
 
               <PlayerAvatar name={t.playerName} src={t.headshotUrl} size={30} />

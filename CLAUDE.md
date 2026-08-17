@@ -242,6 +242,19 @@ and two thirds. Full three-league ingest: ~105-120s, against a 300s cron cap.
   the ones that sell into a premium, and momentum and noise both accumulate, so
   scaling them equally would have worsened the 158-buys-to-12-sells drift.
 
+- **`side` alone is ambiguous once shorting exists**, so `trades.action` records
+  buy/sell/short/cover. Without it a short open is indistinguishable from taking
+  profit on a long, and the activity list reported the *borrowed proceeds* of a
+  freshly opened short as realized profit — `realized = net - shares * avgCost`
+  with `avgCost` of 0. Only closing a position realizes anything. Rows predating
+  shorting have a null action and fall back to `side`, which is correct because
+  every one of them was a long.
+- **`bots:seed` must never write `cash_balance`.** It used to set it to 100,000
+  on every run "to top up after a reset", which handed free money to any bot
+  holding positions: cash restored to full while the holdings stayed, putting
+  twelve bots at ~$180,000 against a $100,000 start. Balances belong to
+  `reset:market`.
+
 ## This machine
 
 - **Disk runs at 95-100% full.** `npm install` and builds fail with `ENOSPC`,
