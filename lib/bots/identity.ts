@@ -86,45 +86,70 @@ export function isBotUsername(username: string): boolean {
  * different hours rather than one frequent job. Each of these hours is its own
  * entry in vercel.json.
  *
- * Eight slots clustered between 13:00 and 23:00 left a fourteen-hour dead zone
- * and made trading feel like bursts: a quarter of the roster fired at once,
- * then nothing for hours. Seventeen hourly slots, each waking a sixth of the
- * roster, turns that into a steady trickle most hours. The 04:00-10:00 gap
- * is deliberate — that is the small hours in Atlantic time, and a market that
- * is quiet overnight reads as a market rather than a machine.
+ * Hourly slots were still bursts, just smaller ones: eight or nine bots fired
+ * within about five seconds and then nothing happened for an hour. Cron
+ * expressions carry a minute field, and Hobby's "once per day" limit is per
+ * *job* — so `0 14 * * *` and `20 14 * * *` are two separate daily jobs. Three
+ * per hour gives a firing point every twenty minutes.
  *
- * Hobby scheduling is only accurate to the hour (a job set for 14:00 fires
- * somewhere in 14:00-14:59), which is a feature here: trades do not land at
- * predictable clock times.
+ * Hobby's scheduling is only accurate to the hour, so a job set for 14:20 may
+ * land anywhere in that hour. That is why each cron entry names its own slot in
+ * the query string rather than letting the route infer one from the clock: the
+ * batch that runs is decided by which job fired, not by when it happened to.
+ * The jitter then works in our favour, scattering the three firings within the
+ * hour instead of pinning them to the same minutes every day.
+ *
+ * The 04:00-10:00 gap is deliberate — that is the small hours in Atlantic time,
+ * and a market that is quiet overnight reads as a market rather than a machine.
  */
-export const SLOT_HOURS = [
-  0, 1, 2, 3, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
-] as const;
+export const SLOT_TIMES: ReadonlyArray<{ hour: number; minute: number }> = (() => {
+  const hours = [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3];
+  return hours.flatMap((hour) => [0, 20, 40].map((minute) => ({ hour, minute })));
+})();
+
+/** Kept for the clock fallback and for tests that reason about coverage. */
+export const SLOT_HOURS = SLOT_TIMES.map((t) => t.hour);
 
 /**
  * Which bots trade in a given slot.
  *
- * Each bot is active in two or three of the seventeen slots, and each slot wakes
- * a sixth of the roster. Staggering by `(index + slot)` rather than by strategy
+ * Each bot is active in three of the fifty-one slots, and each slot wakes about
+ * three bots — a handful of trades every twenty minutes rather than two dozen
+ * on the hour. Staggering by `(index + slot)` rather than by strategy
  * means momentum and value bots are rarely awake together in the same slot — so
  * a price gets pushed in one slot and argued with a few hours later, instead of
  * both happening at once and cancelling out.
  */
 export function botsForSlot(slot: number): BotIdentity[] {
-  return botRoster().filter((b) => (b.index + slot) % 6 === 0);
+  return botRoster().filter((b) => (b.index + slot) % 17 === 0);
 }
 
 /**
- * The slot that most recently began, or null before the first one of the day.
+ * The slot that most recently began.
  *
- * Derived from the hour rather than from an exact time so a cron that fires 40
- * minutes late still resolves to the slot it was scheduled for.
+ * Only a fallback: every scheduled run names its own slot in the query string,
+ * because Hobby fires a job anywhere within its hour and inferring the batch
+ * from the clock would let jitter pick the wrong one. This exists for manual
+ * runs.
+ *
+ * The trading day wraps past midnight (11:00 through 03:40), so "most recent"
+ * cannot be a simple scan for the largest time at or before now — after
+ * midnight every evening slot is numerically *ahead*, and a naive scan lands on
+ * the wrong end of the list. Measuring how long ago each slot fired, modulo a
+ * day, is correct across the wrap.
  */
 export function currentSlot(now = new Date()): number | null {
-  const hour = now.getUTCHours();
-  let found: number | null = null;
-  SLOT_HOURS.forEach((h, i) => {
-    if (hour >= h) found = i;
+  if (SLOT_TIMES.length === 0) return null;
+  const mins = now.getUTCHours() * 60 + now.getUTCMinutes();
+
+  let best = 0;
+  let bestAge = Number.POSITIVE_INFINITY;
+  SLOT_TIMES.forEach((t, i) => {
+    const age = (mins - (t.hour * 60 + t.minute) + 1440) % 1440;
+    if (age < bestAge) {
+      bestAge = age;
+      best = i;
+    }
   });
-  return found;
+  return best;
 }

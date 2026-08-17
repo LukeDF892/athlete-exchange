@@ -143,7 +143,12 @@ export async function runBots(options: RunOptions = {}): Promise<BotRunResult> {
     return result;
   }
 
-  for (const bot of roster) {
+  for (const [i, bot] of roster.entries()) {
+    // A few seconds between bots. Three orders landing in the same second still
+    // reads as a burst on a chart, and the route has 300s of budget for a batch
+    // that needs about five, so spending a little of it on spacing is free.
+    if (i > 0) await new Promise((r) => setTimeout(r, 4000 + Math.random() * 6000));
+
     const rng = makeRng(seed + bot.index * 7919);
     let client: SupabaseClient;
     try {

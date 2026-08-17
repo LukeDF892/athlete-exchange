@@ -18,72 +18,208 @@
       "schedule": "0 10 * * *"
     },
     {
-      "path": "/api/cron/bots",
-      "schedule": "0 0 * * *"
-    },
-    {
-      "path": "/api/cron/bots",
-      "schedule": "0 1 * * *"
-    },
-    {
-      "path": "/api/cron/bots",
-      "schedule": "0 2 * * *"
-    },
-    {
-      "path": "/api/cron/bots",
-      "schedule": "0 3 * * *"
-    },
-    {
-      "path": "/api/cron/bots",
+      "path": "/api/cron/bots?slot=0",
       "schedule": "0 11 * * *"
     },
     {
-      "path": "/api/cron/bots",
+      "path": "/api/cron/bots?slot=1",
+      "schedule": "20 11 * * *"
+    },
+    {
+      "path": "/api/cron/bots?slot=2",
+      "schedule": "40 11 * * *"
+    },
+    {
+      "path": "/api/cron/bots?slot=3",
       "schedule": "0 12 * * *"
     },
     {
-      "path": "/api/cron/bots",
+      "path": "/api/cron/bots?slot=4",
+      "schedule": "20 12 * * *"
+    },
+    {
+      "path": "/api/cron/bots?slot=5",
+      "schedule": "40 12 * * *"
+    },
+    {
+      "path": "/api/cron/bots?slot=6",
       "schedule": "0 13 * * *"
     },
     {
-      "path": "/api/cron/bots",
+      "path": "/api/cron/bots?slot=7",
+      "schedule": "20 13 * * *"
+    },
+    {
+      "path": "/api/cron/bots?slot=8",
+      "schedule": "40 13 * * *"
+    },
+    {
+      "path": "/api/cron/bots?slot=9",
       "schedule": "0 14 * * *"
     },
     {
-      "path": "/api/cron/bots",
+      "path": "/api/cron/bots?slot=10",
+      "schedule": "20 14 * * *"
+    },
+    {
+      "path": "/api/cron/bots?slot=11",
+      "schedule": "40 14 * * *"
+    },
+    {
+      "path": "/api/cron/bots?slot=12",
       "schedule": "0 15 * * *"
     },
     {
-      "path": "/api/cron/bots",
+      "path": "/api/cron/bots?slot=13",
+      "schedule": "20 15 * * *"
+    },
+    {
+      "path": "/api/cron/bots?slot=14",
+      "schedule": "40 15 * * *"
+    },
+    {
+      "path": "/api/cron/bots?slot=15",
       "schedule": "0 16 * * *"
     },
     {
-      "path": "/api/cron/bots",
+      "path": "/api/cron/bots?slot=16",
+      "schedule": "20 16 * * *"
+    },
+    {
+      "path": "/api/cron/bots?slot=17",
+      "schedule": "40 16 * * *"
+    },
+    {
+      "path": "/api/cron/bots?slot=18",
       "schedule": "0 17 * * *"
     },
     {
-      "path": "/api/cron/bots",
+      "path": "/api/cron/bots?slot=19",
+      "schedule": "20 17 * * *"
+    },
+    {
+      "path": "/api/cron/bots?slot=20",
+      "schedule": "40 17 * * *"
+    },
+    {
+      "path": "/api/cron/bots?slot=21",
       "schedule": "0 18 * * *"
     },
     {
-      "path": "/api/cron/bots",
+      "path": "/api/cron/bots?slot=22",
+      "schedule": "20 18 * * *"
+    },
+    {
+      "path": "/api/cron/bots?slot=23",
+      "schedule": "40 18 * * *"
+    },
+    {
+      "path": "/api/cron/bots?slot=24",
       "schedule": "0 19 * * *"
     },
     {
-      "path": "/api/cron/bots",
+      "path": "/api/cron/bots?slot=25",
+      "schedule": "20 19 * * *"
+    },
+    {
+      "path": "/api/cron/bots?slot=26",
+      "schedule": "40 19 * * *"
+    },
+    {
+      "path": "/api/cron/bots?slot=27",
       "schedule": "0 20 * * *"
     },
     {
-      "path": "/api/cron/bots",
+      "path": "/api/cron/bots?slot=28",
+      "schedule": "20 20 * * *"
+    },
+    {
+      "path": "/api/cron/bots?slot=29",
+      "schedule": "40 20 * * *"
+    },
+    {
+      "path": "/api/cron/bots?slot=30",
       "schedule": "0 21 * * *"
     },
     {
-      "path": "/api/cron/bots",
+      "path": "/api/cron/bots?slot=31",
+      "schedule": "20 21 * * *"
+    },
+    {
+      "path": "/api/cron/bots?slot=32",
+      "schedule": "40 21 * * *"
+    },
+    {
+      "path": "/api/cron/bots?slot=33",
       "schedule": "0 22 * * *"
     },
     {
-      "path": "/api/cron/bots",
+      "path": "/api/cron/bots?slot=34",
+      "schedule": "20 22 * * *"
+    },
+    {
+      "path": "/api/cron/bots?slot=35",
+      "schedule": "40 22 * * *"
+    },
+    {
+      "path": "/api/cron/bots?slot=36",
       "schedule": "0 23 * * *"
+    },
+    {
+      "path": "/api/cron/bots?slot=37",
+      "schedule": "20 23 * * *"
+    },
+    {
+      "path": "/api/cron/bots?slot=38",
+      "schedule": "40 23 * * *"
+    },
+    {
+      "path": "/api/cron/bots?slot=39",
+      "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/cron/bots?slot=40",
+      "schedule": "20 0 * * *"
+    },
+    {
+      "path": "/api/cron/bots?slot=41",
+      "schedule": "40 0 * * *"
+    },
+    {
+      "path": "/api/cron/bots?slot=42",
+      "schedule": "0 1 * * *"
+    },
+    {
+      "path": "/api/cron/bots?slot=43",
+      "schedule": "20 1 * * *"
+    },
+    {
+      "path": "/api/cron/bots?slot=44",
+      "schedule": "40 1 * * *"
+    },
+    {
+      "path": "/api/cron/bots?slot=45",
+      "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/cron/bots?slot=46",
+      "schedule": "20 2 * * *"
+    },
+    {
+      "path": "/api/cron/bots?slot=47",
+      "schedule": "40 2 * * *"
+    },
+    {
+      "path": "/api/cron/bots?slot=48",
+      "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/bots?slot=49",
+      "schedule": "20 3 * * *"
+    },
+    {
+      "path": "/api/cron/bots?slot=50",
+      "schedule": "40 3 * * *"
     }
   ]
 }

@@ -8,7 +8,7 @@ import { InjuryIndex } from "../lib/providers/injuries.ts";
 import { recentFormFromDoc } from "../lib/providers/gamelog.ts";
 import { buildTeams } from "../lib/market/teams.ts";
 import { decide, makeRng, sharesForBudget } from "../lib/bots/strategies.ts";
-import { botRoster, botsForSlot, currentSlot, SLOT_HOURS } from "../lib/bots/identity.ts";
+import { botRoster, botsForSlot, currentSlot, SLOT_HOURS, SLOT_TIMES } from "../lib/bots/identity.ts";
 import { positionLimit, quoteBuy } from "../lib/pricing/engine.ts";
 import type { Player } from "../lib/market/types.ts";
 
@@ -604,28 +604,38 @@ test("bot trading is spread across the day, not fired all at once", () => {
     assert.ok(slots >= 2, `${bot.username} only trades in ${slots} slot(s)`);
   }
 
-  // Slots are in ascending order, so "the slot the clock is in" is well defined.
-  const ascending = [...SLOT_HOURS].every((h, i, a) => i === 0 || h > a[i - 1]);
-  assert.ok(ascending, "slot hours must be sorted");
+  // The trading day wraps past midnight, so the hours are not ascending — what
+  // must hold is that no slot repeats a time and the day is genuinely covered.
+  const stamps = SLOT_TIMES.map((t) => `${t.hour}:${t.minute}`);
+  assert.equal(new Set(stamps).size, stamps.length, "two slots share a firing time");
+  assert.ok(SLOT_TIMES.length >= 24, `only ${SLOT_TIMES.length} firing points in a day`);
 });
 
-test("the current slot resolves to the most recent one that has begun", () => {
-  const at = (hour: number) => new Date(Date.UTC(2026, 7, 16, hour, 30));
+test("the current slot is correct either side of midnight", () => {
+  const at = (hour: number, minute = 5) => new Date(Date.UTC(2026, 7, 16, hour, minute));
+  const timeOf = (i: number) => SLOT_TIMES[i];
 
-  // Trading now starts at midnight UTC, so every hour of the day sits at or
-  // after a slot — there is no longer a "before the first one" to be absent for.
-  assert.equal(currentSlot(at(SLOT_HOURS[0])), 0);
-  assert.equal(currentSlot(at(SLOT_HOURS[SLOT_HOURS.length - 1])), SLOT_HOURS.length - 1);
+  // Just after a slot fires, that slot is the current one.
+  const first = SLOT_TIMES[0];
+  assert.equal(currentSlot(at(first.hour, first.minute + 5)), 0);
 
-  // The overnight gap holds the last slot before it rather than wrapping to the
-  // end of yesterday, so a late or manual run cannot replay the previous night.
-  const lastBeforeGap = SLOT_HOURS.filter((h) => h < 10).length - 1;
-  assert.equal(currentSlot(at(6)), lastBeforeGap);
-  assert.equal(currentSlot(at(9)), lastBeforeGap);
+  // The day wraps: at 01:05 the answer must be an after-midnight slot, not an
+  // evening one left over from a naive scan of the list.
+  const afterMidnight = currentSlot(at(1, 5));
+  assert.ok(afterMidnight != null);
+  assert.ok(
+    timeOf(afterMidnight!).hour <= 3,
+    `01:05 resolved to a slot at ${timeOf(afterMidnight!).hour}:00`
+  );
 
-  // A cron firing up to 59 minutes late still resolves to its own slot, which
-  // is what Hobby's per-hour scheduling precision requires.
-  const slotHour = SLOT_HOURS[5];
-  assert.equal(currentSlot(new Date(Date.UTC(2026, 7, 16, slotHour, 0))), 5);
-  assert.equal(currentSlot(new Date(Date.UTC(2026, 7, 16, slotHour, 59))), 5);
+  // Mid-evening resolves to an evening slot, not to one after midnight.
+  const evening = currentSlot(at(20, 25));
+  assert.ok(evening != null);
+  assert.equal(timeOf(evening!).hour, 20);
+
+  // During the overnight gap the last slot before it still holds, rather than
+  // jumping forward to a slot that has not fired yet today.
+  const inGap = currentSlot(at(7, 0));
+  assert.ok(inGap != null);
+  assert.ok(timeOf(inGap!).hour <= 3, "the 04:00-10:00 gap should hold the last night slot");
 });
