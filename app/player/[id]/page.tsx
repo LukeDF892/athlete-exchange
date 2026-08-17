@@ -12,6 +12,8 @@ import { CareerValueChart } from "@/components/CareerValueChart";
 import { TradePanel } from "@/components/TradePanel";
 import { StatTables } from "@/components/StatTables";
 import { Card, PlayerAvatar, SportBadge, StatTile } from "@/components/ui";
+import { UpcomingGames } from "@/components/UpcomingGames";
+import { fetchUpcoming } from "@/lib/providers/schedule";
 
 /**
  * What you already hold in this athlete.
@@ -71,12 +73,13 @@ export default async function PlayerPage(props: PageProps<"/player/[id]">) {
   const player = await getPlayer(id);
   if (!player) notFound();
 
-  const [history, news, trading, trades, watchedIds] = await Promise.all([
+  const [history, news, trading, trades, watchedIds, fixtures] = await Promise.all([
     getPriceHistory(player),
     getNewsForPlayer(id),
     getTradingContext(id),
     getTrades(20, id),
     getWatchlistIds(),
+    fetchUpcoming(player.sport, player.teamAbbrev),
   ]);
   const premium = marketPremiumPct(player);
   const hasTraded = player.sharesOutstanding > 0;
@@ -246,6 +249,13 @@ export default async function PlayerPage(props: PageProps<"/player/[id]">) {
             initialWatching={watchedIds.includes(id)}
             disabled={!trading.tradingEnabled}
           />
+          {/* What is coming up, before the ticket — "should I buy now or wait?"
+              is answered by the fixture list, not by the price. */}
+          <div className="rounded-xl border border-ink-750 bg-ink-850/70 p-4">
+            <h2 className="mb-2.5 text-sm font-semibold text-ink-100">Upcoming games</h2>
+            <UpcomingGames fixtures={fixtures} />
+          </div>
+
           {/* Your own stake, before the order ticket — it was previously only a
               small line inside the panel, so "how many do I own?" meant
               hunting for it or opening the portfolio. */}
