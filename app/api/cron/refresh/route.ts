@@ -61,6 +61,15 @@ export async function GET(request: Request) {
         process.env.SUPABASE_SERVICE_ROLE_KEY!,
         { auth: { persistSession: false } }
       );
+      // Force-close any short whose cover cost has outgrown its collateral,
+      // before net worth is recorded — otherwise the snapshot captures a
+      // position the trader can no longer afford to buy back.
+      try {
+        await db.rpc("margin_call");
+      } catch {
+        // A missed margin call is caught on the next run; it must not stop the
+        // portfolio snapshot.
+      }
       const { data } = await db.rpc("snapshot_portfolios");
       snapshots = Number(data ?? 0);
     } catch {

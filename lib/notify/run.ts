@@ -44,7 +44,7 @@ export async function sendDailyDigests(siteUrl: string): Promise<DigestRun> {
   for (const r of recipients) {
     try {
       const [{ data: holdingRows }, { data: watchRows }] = await Promise.all([
-        db.from("holdings").select("player_id, shares").eq("user_id", r.userId).gt("shares", 0),
+        db.from("holdings").select("player_id, shares").eq("user_id", r.userId).neq("shares", 0),
         db.from("watchlist").select("player_id").eq("user_id", r.userId),
       ]);
 

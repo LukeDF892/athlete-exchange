@@ -183,7 +183,7 @@ export async function getPersonalDigest(players: Player[]): Promise<PersonalDige
     if (!user) return null;
 
     const [{ data: holdingRows }, { data: watchRows }] = await Promise.all([
-      supabase.from("holdings").select("player_id, shares").gt("shares", 0),
+      supabase.from("holdings").select("player_id, shares").neq("shares", 0),
       supabase.from("watchlist").select("player_id"),
     ]);
 

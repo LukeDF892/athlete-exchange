@@ -208,6 +208,28 @@ and two thirds. Full three-league ingest: ~105-120s, against a 300s cron cap.
   from the view entirely rather than merely unselected. It is another
   `security_invoker = false` view, so its grant is explicit.
 
+- **Shorting needed no new pricing maths.** `price(S) = fairValue × e^(S/L)` is
+  defined for negative `S`, and `curve_area()` is the same integral in either
+  direction — so a short round trip is break-even for exactly the reason a long
+  one is. What it needed was bookkeeping: negative holdings, per-position
+  `collateral`, and `margin_call()`.
+- **Two constraints blocked negative supply**, and only one was obvious:
+  `holdings_shares_check` *and* `players_shares_outstanding_check`. Missing the
+  second meant shorts were rejected mid-transaction, which in a test run left an
+  orphaned long and a price 100 shares above where any holder existed. When
+  changing sign conventions, grep for every `>= 0` check, not just the one you
+  are thinking about.
+- **Shorting costs buying power, never creates it.** Proceeds are credited to
+  cash but 1.5× them is locked, so `available_cash()` = cash − Σ collateral is
+  the number every buy is checked against. `npm run verify:shorting` asserts
+  this alongside the break-even round trip and the no-crossing-zero rule.
+- **An order may not cross zero.** Short 50 and buy 80 is rejected rather than
+  covering and going long in one step — one trade, one meaning, and it halves
+  the paths through the most safety-critical function in the app.
+- **Bots stay long-only on purpose.** `runBots` reads holdings with
+  `.gt("shares", 0)`; a negative position would make `decide()` try to "sell"
+  it, which opens a bigger short rather than closing anything.
+
 ## This machine
 
 - **Disk runs at 95-100% full.** `npm install` and builds fail with `ENOSPC`,

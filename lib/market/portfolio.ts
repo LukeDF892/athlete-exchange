@@ -151,6 +151,15 @@ export async function getPortfolio(): Promise<PortfolioSummary | null> {
 
       const shares = Number(h.shares);
       const avgCost = Number(h.avg_cost);
+      /**
+       * Negative shares are a short, and both numbers flip meaning.
+       *
+       * `marketValue` becomes what it would cost to buy the position back —
+       * carried as a negative, so net worth is still cash plus the sum of
+       * positions. `costBasis` is what you were paid to open it. Profit is
+       * therefore still value minus basis, which for a short is positive when
+       * the price has fallen: exactly the same arithmetic, no special case.
+       */
       const marketValue = shares * player.marketPrice;
       const costBasis = shares * avgCost;
 
@@ -161,7 +170,10 @@ export async function getPortfolio(): Promise<PortfolioSummary | null> {
         marketValue,
         costBasis,
         unrealizedPnl: marketValue - costBasis,
-        unrealizedPct: costBasis > 0 ? ((marketValue - costBasis) / costBasis) * 100 : 0,
+        // Measured against the size of the position either way, so a short
+        // does not report a negative percentage while making money.
+        unrealizedPct:
+          Math.abs(costBasis) > 0 ? ((marketValue - costBasis) / Math.abs(costBasis)) * 100 : 0,
       };
     })
     .sort((a, b) => b.marketValue - a.marketValue);

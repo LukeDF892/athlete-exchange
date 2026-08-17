@@ -52,7 +52,28 @@ export function TradePanel({
   }, [side, shares, player]);
 
   const slippagePct = quote ? ((quote.avgPrice - quote.priceBefore) / quote.priceBefore) * 100 : null;
-  const canSell = side === "sell" && shares > sharesHeld;
+
+  /**
+   * Which of the four things this order actually is.
+   *
+   * A sell with no position opens a short; a buy against one covers it. The
+   * panel says so explicitly rather than leaving "sell" to mean two different
+   * trades depending on state you cannot see from here.
+   */
+  const isShort = sharesHeld < 0;
+  const action =
+    side === "buy"
+      ? isShort
+        ? "cover"
+        : "buy"
+      : sharesHeld > 0
+        ? "sell"
+        : "short";
+
+  // Orders may not cross zero — the database rejects it, so say so first.
+  const overCover = action === "cover" && shares > Math.abs(sharesHeld);
+  const overSell = action === "sell" && shares > sharesHeld;
+  const canSell = overSell;
   const tooExpensive = side === "buy" && cash != null && quote != null && quote.net > cash;
 
   // Mirrors the cap enforced in execute_trade(). Warning here rather than
@@ -241,9 +262,24 @@ export function TradePanel({
         </p>
       )}
 
-      {canSell && (
+      {overSell && (
         <p className="mt-3 rounded-lg bg-down-dim px-3 py-2 text-xs text-down">
-          You hold {sharesHeld} shares.
+          You hold {sharesHeld} shares. Sell that many or fewer — closing out and opening a short
+          are two separate orders.
+        </p>
+      )}
+      {overCover && (
+        <p className="mt-3 rounded-lg bg-down-dim px-3 py-2 text-xs text-down">
+          You are short {Math.abs(sharesHeld)} shares. Cover that many or fewer; going long is a
+          second order.
+        </p>
+      )}
+      {action === "short" && !overSell && (
+        <p className="mt-3 rounded-lg border border-warn/30 bg-warn-dim/40 px-3 py-2 text-xs leading-relaxed text-ink-200">
+          <strong className="text-ink-50">This opens a short.</strong> You are selling shares you do
+          not own, betting the price falls. The proceeds are credited but 1.5× them is locked as
+          collateral, so shorting costs buying power. If the price rises far enough that covering
+          would cost more than your collateral, the position is closed for you.
         </p>
       )}
       {overLimit && (
@@ -262,12 +298,14 @@ export function TradePanel({
       {tradingEnabled ? (
         <button
           onClick={submit}
-          disabled={pending || shares <= 0 || canSell || tooExpensive || overLimit || settled}
+          disabled={
+            pending || shares <= 0 || overSell || overCover || tooExpensive || overLimit || settled
+          }
           className={`mt-4 w-full rounded-lg py-2.5 text-sm font-bold uppercase tracking-wide transition-all disabled:cursor-not-allowed disabled:opacity-40 ${
             side === "buy" ? "bg-up text-ink-950" : "bg-down text-ink-950"
           } hover:brightness-110`}
         >
-          {pending ? "Working…" : `${side} ${shares || 0} share${shares === 1 ? "" : "s"}`}
+          {pending ? "Working…" : `${action} ${shares || 0} share${shares === 1 ? "" : "s"}`}
         </button>
       ) : (
         <div className="mt-4 rounded-lg border border-dashed border-ink-700 px-3 py-3 text-center">

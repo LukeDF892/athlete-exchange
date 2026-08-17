@@ -165,6 +165,9 @@ export async function runBots(options: RunOptions = {}): Promise<BotRunResult> {
     try {
       const [{ data: profile }, { data: holdings }] = await Promise.all([
         client.from("profiles").select("cash_balance").maybeSingle(),
+        // Deliberately long-only: bots never short, and reading a negative
+        // position here would make decide() try to "sell" it, which opens a
+        // bigger short rather than closing anything.
         client.from("holdings").select("player_id, shares").gt("shares", 0),
       ]);
 
