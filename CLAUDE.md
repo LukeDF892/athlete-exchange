@@ -266,6 +266,26 @@ machine — so the daily refresh runs one league per cron.
   the nav (five tabs plus Sign in) and the market filter row both overflowed,
   and because the header is sticky it dragged the whole page with it. Measure
   `documentElement.scrollWidth - clientWidth`; it should be 0.
+- **A position is worth what closing it pays, not `shares x marketPrice`.**
+  Spot is the price of the *next* share; selling walks back down the curve. The
+  spot mark therefore booked the holder's own price impact as profit the instant
+  they bought — a 120-share buy read +0.84% on a round trip that returns exactly
+  what it cost, one real position read +10.29% against a true 0.00%, and another
+  read +7.06% while selling it would have realised -2.97%. `positionValue()`
+  (engine.ts) and `position_value()` (SQL, 0020) are the one answer, used by the
+  position panel, the portfolio, the leaderboard and the recorded net worth.
+  Verified equal to the cent across live positions; they must stay that way, for
+  the same reason the trade maths must.
+- **A view's `limit` binds before any caller's `where`.** `trade_tape` carried
+  `limit 200` inside the view (0016), so `getPlayerTape`'s `player_id` filter
+  could only search the most recent 200 trades market-wide: 1,700 trades in the
+  table, 200 reachable, one listing showing 8 of its 48. The symptom was a price
+  that had visibly moved above a panel saying nobody had traded it. 0019 removes
+  the cap; both callers already pass their own.
+- **Migrations 0018-0020 are applied.** 0018 `market_meta` (calibration, for
+  live in-game repricing), 0019 the tape cap, 0020 the position mark. The
+  "Potential issue detected" dialog fired on 0019 and not on 0018 or 0020 — it
+  keys on `drop`, not on `revoke`, so it is not a reliable prompt to watch for.
 - **`trade_tape` publishes less than `trades` does.** Share counts and listings
   are market information, the cash each trade moved is not — so `net` is absent
   from the view entirely rather than merely unselected. It is another
