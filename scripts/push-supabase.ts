@@ -8,8 +8,18 @@
  * but shares_outstanding, opening_fair_value and liquidity_depth are left alone
  * for players that already exist. Those belong to the market, not the feed;
  * overwriting them would wipe out everyone's positions.
+ *
+ * That guarantee is only as good as the read that backs it, and for a long time
+ * it was not good at all: PostgREST caps a response at 1,000 rows and reports
+ * no error, so on a 5,476-row board the read-back covered under a fifth of it.
+ * Every listing outside that page looked new, and was upserted with zero shares
+ * outstanding and a price reset to fair value — which quietly deleted the
+ * market's memory of 135 held positions and marked them at a price nobody had
+ * traded at. `getPlayers()` learned this lesson (see lib/market/source.ts); the
+ * push had not. Every read here is paged, and the row count is checked against
+ * the table before anything is written.
  */
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { marketPrice } from "@/lib/pricing/engine";
 import type { NewsItem, Player } from "@/lib/market/types";
 
@@ -42,10 +52,28 @@ export async function pushSnapshot(snapshot: Snapshot): Promise<void> {
   const db = createClient(url, serviceKey, { auth: { persistSession: false } });
 
   // Existing market state, so a refresh never clobbers live positions.
-  const { data: existing, error: readErr } = await db
+  const existing = await selectAll<{
+    external_id: string;
+    shares_outstanding: number;
+    opening_fair_value: number;
+    liquidity_depth: number;
+    market_price: number;
+  }>(db, "players", "external_id, shares_outstanding, opening_fair_value, liquidity_depth, market_price");
+
+  // A short read here is indistinguishable from a board full of new listings,
+  // and the cost of not noticing is everyone's positions. So it is checked
+  // rather than trusted: refusing to write is recoverable, writing zeroes is
+  // not.
+  const { count, error: countErr } = await db
     .from("players")
-    .select("external_id, shares_outstanding, opening_fair_value, liquidity_depth, market_price");
-  if (readErr) throw readErr;
+    .select("*", { count: "exact", head: true });
+  if (countErr) throw countErr;
+  if (count != null && existing.length < count) {
+    throw new Error(
+      `read back only ${existing.length} of ${count} existing listings — refusing to push, ` +
+        "because every listing missing from that read would be reset to zero shares outstanding"
+    );
+  }
 
   const prior = new Map(
     (existing ?? []).map((row) => [
@@ -110,9 +138,10 @@ export async function pushSnapshot(snapshot: Snapshot): Promise<void> {
   console.log(`[supabase] upserted ${rows.length} players`);
 
   // Record a tick per player so the chart has a fresh point for both lines.
-  const { data: ids, error: idErr } = await db.from("players").select("id, external_id");
-  if (idErr) throw idErr;
-  const idByExternal = new Map((ids ?? []).map((r) => [r.external_id as string, r.id as string]));
+  // Paged for the same reason as the read above: capped at 1,000, four fifths
+  // of the board silently got no tick, so their charts stopped moving.
+  const ids = await selectAll<{ id: string; external_id: string }>(db, "players", "id, external_id");
+  const idByExternal = new Map(ids.map((r) => [r.external_id, r.id]));
 
   const ticks = rows
     .map((r) => {
@@ -149,8 +178,8 @@ export async function pushSnapshot(snapshot: Snapshot): Promise<void> {
     console.log(`[supabase] upserted ${newsRows.length} news items`);
 
     // Link stories to players.
-    const { data: newsIds } = await db.from("news").select("id, url");
-    const newsIdByUrl = new Map((newsIds ?? []).map((r) => [r.url as string, r.id as number]));
+    const newsIds = await selectAll<{ id: number; url: string }>(db, "news", "id, url");
+    const newsIdByUrl = new Map(newsIds.map((r) => [r.url, r.id]));
     const links: Array<{ news_id: number; player_id: string }> = [];
     for (const n of snapshot.news) {
       const newsId = newsIdByUrl.get(n.url);
@@ -167,6 +196,34 @@ export async function pushSnapshot(snapshot: Snapshot): Promise<void> {
       }
       console.log(`[supabase] linked ${links.length} story/player pairs`);
     }
+  }
+}
+
+/** PostgREST refuses to return more than this in one request. */
+const PAGE = 1000;
+
+/**
+ * Every row of a table, a page at a time.
+ *
+ * PostgREST truncates at 1,000 rows and returns success, so an unpaged read of
+ * a growing table does not fail — it silently starts telling a smaller and
+ * smaller fraction of the truth.
+ */
+async function selectAll<T>(
+  db: SupabaseClient,
+  table: string,
+  columns: string
+): Promise<T[]> {
+  const all: T[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await db.from(table).select(columns).range(from, from + PAGE - 1);
+    if (error) throw error;
+    const rows = (data ?? []) as T[];
+    all.push(...rows);
+    // A short page is the last page.
+    if (rows.length < PAGE) return all;
+    // Guard against a runaway loop if the table grows unexpectedly.
+    if (all.length >= 100_000) return all;
   }
 }
 

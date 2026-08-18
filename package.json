@@ -14,7 +14,8 @@
     "verify:rls": "node --experimental-websocket --import tsx scripts/verify-rls.ts",
     "reset:market": "node --experimental-websocket --import tsx scripts/reset-market.ts",
     "bots:seed": "node --experimental-websocket --import tsx scripts/seed-bots.ts",
-    "verify:shorting": "node --experimental-websocket --import tsx scripts/verify-shorting.ts"
+    "verify:shorting": "node --experimental-websocket --import tsx scripts/verify-shorting.ts",
+    "reconcile:market": "node --experimental-websocket --import tsx scripts/reconcile-market.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.4",

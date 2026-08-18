@@ -230,6 +230,29 @@ machine — so the daily refresh runs one league per cron.
   existing row. A partial ingest is therefore safe; the snapshot file is the
   fragile half, because it is a full overwrite and is what signed-out visitors
   read.
+- **That read-back is only as good as its paging, and for a long time it had
+  none.** PostgREST caps a response at 1,000 rows and returns success, so on a
+  5,476-row board the push read back under a fifth of the market and treated
+  every listing outside that page as new — zero shares outstanding, price reset
+  to fair value, `opening_fair_value` and `liquidity_depth` overwritten. 137
+  held positions were marked at a price nobody had traded at, which surfaced as
+  a player page showing "At opening price" beside a chart of real trades and a
+  position showing a loss on a listing that had gone up. `getPlayers()` already
+  knew this (it pages, with a comment saying why); the push did not. Every read
+  in `push-supabase.ts` is paged now, and it refuses to write at all if the
+  read-back returns fewer rows than the table holds. **The same cap applies to
+  any unpaged `.select()` in this repo — check for `.range()` before trusting a
+  count.**
+- **`holdings` is the ledger; `players.shares_outstanding` is a cache of it.**
+  The curve mints a share on buy and burns one on sell, so the two must agree,
+  and `execute_trade()` keeps them agreeing in one transaction. That makes the
+  damage above fully reversible: `npm run reconcile:market` rebuilds shares from
+  the sum of holdings, solves `liquidity_depth` back out of the last price tick
+  (which recorded price, fair value and shares together), and recomputes
+  `market_price` with the same `marketPrice()` the SQL uses — verified by the
+  restored price matching the last recorded tick to the cent. It is dry by
+  default. `opening_fair_value` is deliberately not reconstructed: nothing
+  computes with it, and no record of the old value survives.
 - **Market board payload**: send `MarketRow`, never full `Player`. Full records
   for 1,280 athletes was a 5.7 MB homepage. Rendering is capped at 100 rows.
 - **RLS is the boundary, not the app.** Migration 0008's self-update policy
