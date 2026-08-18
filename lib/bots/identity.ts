@@ -108,7 +108,13 @@ export function isBotUsername(username: string): boolean {
  * and a market that is quiet overnight reads as a market rather than a machine.
  */
 export const SLOT_TIMES: ReadonlyArray<{ hour: number; minute: number }> = (() => {
-  const hours = [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1];
+  // Shifted two hours later than it began, to cover games rather than mornings.
+  // These slots now carry the live repricing as well as the bots, and a North
+  // American evening game runs roughly 23:00-05:00 UTC — the old window closed
+  // at 01:50, which is 9:50pm Eastern, so it stopped before most games did.
+  // Trading 08:00-09:50 Atlantic bought nothing; the last two hours of the
+  // evening buy the end of every East Coast game.
+  const hours = [13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3];
   return hours.flatMap((hour) => [0, 10, 20, 30, 40, 50].map((minute) => ({ hour, minute })));
 })();
 

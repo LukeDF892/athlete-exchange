@@ -12,9 +12,11 @@ import {
   TRADE_FEE_RATE,
   positionLimit,
   positionValue,
+  DEFAULT_CALIBRATION,
   type StatLine,
 } from "../lib/pricing/engine.ts";
 import { calibrateLeague } from "../lib/pricing/calibrate.ts";
+import { mergeCalibration } from "../lib/market/calibration.ts";
 
 const mvpNba: StatLine = {
   gamesPlayed: 70,
@@ -549,4 +551,26 @@ test("a short is marked at what covering costs, carried negative", () => {
     Math.abs(Math.abs(marked) - open.net) <= 0.02,
     `covering should cost the ${open.net} received, got ${Math.abs(marked)}`
   );
+});
+
+/**
+ * A single-league refresh must not reset the other three.
+ *
+ * `calibrateLeague()` returns the built-in fallback for every position group it
+ * did not measure, and a scheduled refresh only ever measures one league.Write
+ * that result whole and the other three leagues silently get priced against
+ * marks nobody measured — every listing on the board moves, for no reason.
+ */
+test("merging calibration only replaces the leagues that were measured", () => {
+  const stored = structuredClone(DEFAULT_CALIBRATION);
+  stored.season["nhl-forward"] = { median: 41, elite: 93 };
+  stored.season["mlb-batter"] = { median: 33, elite: 87 };
+
+  const fresh = structuredClone(DEFAULT_CALIBRATION);
+  fresh.season["nhl-forward"] = { median: 44, elite: 96 };
+  fresh.season["mlb-batter"] = { median: 1, elite: 2 };
+
+  const merged = mergeCalibration(stored, fresh, ["nhl"]);
+  assert.deepEqual(merged.season["nhl-forward"], { median: 44, elite: 96 }, "nhl was measured");
+  assert.deepEqual(merged.season["mlb-batter"], { median: 33, elite: 87 }, "mlb must be untouched");
 });

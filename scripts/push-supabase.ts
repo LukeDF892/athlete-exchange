@@ -20,13 +20,21 @@
  * the table before anything is written.
  */
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { marketPrice } from "@/lib/pricing/engine";
+import { marketPrice, type Calibration, type Sport } from "@/lib/pricing/engine";
+import { saveCalibration } from "@/lib/market/calibration";
 import type { NewsItem, Player } from "@/lib/market/types";
 
 export interface Snapshot {
   generatedAt: string;
   players: Player[];
   news: NewsItem[];
+  /**
+   * The yardstick this run measured, stored so the live refresh can price a
+   * single player against the same marks. Absent on an old snapshot file.
+   */
+  calibration?: Calibration;
+  /** Which leagues the calibration actually measured — see mergeCalibration. */
+  calibratedSports?: Sport[];
 }
 
 export async function pushSnapshot(snapshot: Snapshot): Promise<void> {
@@ -161,6 +169,19 @@ export async function pushSnapshot(snapshot: Snapshot): Promise<void> {
     if (error) throw error;
   }
   console.log(`[supabase] inserted ${ticks.length} price ticks`);
+
+  // The yardstick, for the live refresh. Merged per sport, because a
+  // single-league run only measured that league.
+  if (snapshot.calibration && snapshot.calibratedSports?.length) {
+    try {
+      await saveCalibration(db, snapshot.calibration, snapshot.calibratedSports);
+      console.log(`[supabase] stored calibration for ${snapshot.calibratedSports.join(", ")}`);
+    } catch (err) {
+      // Prices are already written and correct; only the live refresh degrades,
+      // and it degrades to "no repricing", which is where it was yesterday.
+      console.warn("[supabase] calibration not stored:", (err as Error).message);
+    }
+  }
 
   if (snapshot.news.length > 0) {
     const newsRows = snapshot.news.map((n) => ({

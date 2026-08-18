@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { runBots } from "@/lib/bots/run";
+import { refreshLiveGames } from "@/lib/ingest/live";
 
 /**
  * A day of bot trading.
@@ -31,6 +32,32 @@ export async function GET(request: Request) {
   const slotParam = url.searchParams.get("slot");
   const slot = slotParam == null ? undefined : Number(slotParam);
 
+  /**
+   * Live games first, then the bots.
+   *
+   * This route is where the live refresh lives because of a Hobby-plan
+   * constraint, not a design preference: a cron job there runs at most once a
+   * day, and 94 of the 100 are already spoken for. The ninety bot slots are the
+   * only ten-minute heartbeat this project has, so the refresh rides them.
+   *
+   * It gets a strict slice of the budget and is never allowed to fail the run.
+   * The bots are what make the market look alive; repricing is what makes it
+   * honest. Losing the second for one slot costs ten minutes of staleness,
+   * losing the first looks like the site is down.
+   */
+  let live = null;
+  try {
+    const { createClient } = await import("@supabase/supabase-js");
+    const db = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      { auth: { persistSession: false } }
+    );
+    live = await refreshLiveGames(db, { budgetMs: 45_000 });
+  } catch (err) {
+    live = { error: err instanceof Error ? err.message : String(err) };
+  }
+
   try {
     const result = await runBots({
       slot: Number.isFinite(slot) ? slot : undefined,
@@ -38,6 +65,7 @@ export async function GET(request: Request) {
     });
     return NextResponse.json({
       ok: true,
+      live,
       ...result,
       // The log is the only record of why a price moved, so it is returned
       // rather than only written to a console nobody reads.

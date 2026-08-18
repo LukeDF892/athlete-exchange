@@ -469,6 +469,12 @@ export async function runIngest(options: IngestOptions = {}): Promise<IngestResu
     generatedAt: new Date().toISOString(),
     players,
     news,
+    // Carried so the live refresh can price one player against the same marks
+    // this run measured. Only the leagues actually fetched are claimed.
+    calibration,
+    calibratedSports: (["nhl", "nba", "mlb", "nfl"] as const).filter(
+      (s) => runs(s) && raws.some((r) => r.sport === s)
+    ),
   };
 
   // Vercel's filesystem is read-only outside /tmp, and the snapshot is only
