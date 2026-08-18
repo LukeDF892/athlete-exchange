@@ -8,7 +8,8 @@ import { TradeHistory } from "@/components/TradeHistory";
 import { PlayerTape } from "@/components/PlayerTape";
 import { getPlayerTape } from "@/lib/market/tape";
 import { marketPremiumPct } from "@/lib/market/types";
-import { money, signedMoney, signedPct, timeAgo, trendClass } from "@/lib/format";
+import { LivePlayerPrice, LivePlayerProvider, YourPosition } from "@/components/LivePlayer";
+import { money, signedPct, timeAgo } from "@/lib/format";
 import { PriceChart } from "@/components/PriceChart";
 import { CareerValueChart } from "@/components/CareerValueChart";
 import { TradePanel } from "@/components/TradePanel";
@@ -16,57 +17,6 @@ import { StatTables } from "@/components/StatTables";
 import { Card, PlayerAvatar, SportBadge, StatTile } from "@/components/ui";
 import { UpcomingGames } from "@/components/UpcomingGames";
 import { fetchUpcoming } from "@/lib/providers/schedule";
-
-/**
- * What you already hold in this athlete.
- *
- * Shown above the trade ticket rather than inside it, because it answers a
- * different question: the ticket is about what you are about to do, this is
- * about what you have already done.
- */
-function YourPosition({
-  shares,
-  avgCost,
-  marketPrice,
-}: {
-  shares: number;
-  avgCost: number;
-  marketPrice: number;
-}) {
-  const value = shares * marketPrice;
-  const basis = shares * avgCost;
-  const pnl = value - basis;
-  const pct = basis > 0 ? (pnl / basis) * 100 : 0;
-
-  return (
-    <div className="rounded-xl border border-accent/25 bg-ink-850/70 p-4">
-      <div className="flex items-baseline justify-between">
-        <h2 className="text-sm font-semibold text-ink-100">Your position</h2>
-        <span className="tnum text-sm font-bold text-ink-50">
-          {shares.toLocaleString()} {shares === 1 ? "share" : "shares"}
-        </span>
-      </div>
-
-      <dl className="mt-3 space-y-1.5 text-xs">
-        <div className="flex items-center justify-between">
-          <dt className="text-ink-400">Average cost</dt>
-          <dd className="tnum text-ink-200">{money(avgCost)}</dd>
-        </div>
-        <div className="flex items-center justify-between">
-          <dt className="text-ink-400">Market value</dt>
-          <dd className="tnum text-ink-100">{money(value)}</dd>
-        </div>
-        <div className="my-2 border-t border-ink-750" />
-        <div className="flex items-center justify-between">
-          <dt className="text-ink-400">Unrealized P&L</dt>
-          <dd className={`tnum text-sm font-bold ${trendClass(pnl)}`}>
-            {signedMoney(pnl)} <span className="text-xs font-medium">({signedPct(pct)})</span>
-          </dd>
-        </div>
-      </dl>
-    </div>
-  );
-}
 
 export default async function PlayerPage(props: PageProps<"/player/[id]">) {
   const { id } = await props.params;
@@ -88,6 +38,16 @@ export default async function PlayerPage(props: PageProps<"/player/[id]">) {
   const hasTraded = player.sharesOutstanding > 0;
 
   return (
+    // One websocket subscription for the whole page: the header price, the
+    // position panel and the tape below all move together when anyone trades
+    // this listing, instead of the page being a photograph of the moment it
+    // was rendered.
+    <LivePlayerProvider
+      playerId={player.id}
+      marketPrice={player.marketPrice}
+      fairValue={player.fairValue}
+      sharesOutstanding={player.sharesOutstanding}
+    >
     <div className="rise">
       <Link
         href="/"
@@ -119,16 +79,11 @@ export default async function PlayerPage(props: PageProps<"/player/[id]">) {
           </div>
         </div>
 
-        <div className="text-right">
-          <div className="tnum text-3xl font-bold text-ink-50">{money(player.marketPrice)}</div>
-          <div className={`text-sm font-medium ${hasTraded ? trendClass(premium) : "text-ink-400"}`}>
-            {hasTraded ? (
-              <span className="tnum">{signedPct(premium)} vs performance</span>
-            ) : (
-              "At opening price"
-            )}
-          </div>
-        </div>
+        <LivePlayerPrice
+          marketPrice={player.marketPrice}
+          fairValue={player.fairValue}
+          sharesOutstanding={player.sharesOutstanding}
+        />
       </header>
 
       {player.status && player.status !== "active" && (
@@ -220,7 +175,7 @@ export default async function PlayerPage(props: PageProps<"/player/[id]">) {
                 Every trader&rsquo;s buys and sells on this listing.
               </p>
             </div>
-            <PlayerTape entries={tape} />
+            <PlayerTape entries={tape} playerId={player.id} />
           </Card>
 
           {trades.length > 0 && <TradeHistory trades={trades} title="Your trades" />}
@@ -281,6 +236,8 @@ export default async function PlayerPage(props: PageProps<"/player/[id]">) {
               shares={trading.sharesHeld}
               avgCost={trading.avgCost}
               marketPrice={player.marketPrice}
+              fairValue={player.fairValue}
+              sharesOutstanding={player.sharesOutstanding}
             />
           )}
           <TradePanel
@@ -294,5 +251,6 @@ export default async function PlayerPage(props: PageProps<"/player/[id]">) {
         </aside>
       </div>
     </div>
+    </LivePlayerProvider>
   );
 }

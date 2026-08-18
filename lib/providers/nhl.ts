@@ -231,6 +231,63 @@ function aggregateRecent(games: NhlGame[] | undefined, isGoalie: boolean): StatL
   };
 }
 
+/**
+ * Games in the trailing window each series point is measured over.
+ *
+ * Deliberately smaller than the five games `recent` is priced on. The landing
+ * feed gives five games and nothing more, so walking a five-game window forward
+ * would leave every point after the first measured over four games, then three,
+ * then two — and because `fairValue()` regresses a small sample toward
+ * replacement level, that draws a rising line for every player on the board
+ * whether or not anyone is playing well. Three games is the largest window that
+ * stays *full* at more than one point, so each value on the chart is the same
+ * measurement taken at a different date, which is the only thing that makes the
+ * shape mean anything.
+ */
+const SERIES_WINDOW = 3;
+
+/**
+ * The value-bearing half of the short chart ranges: one trailing-window stat
+ * line per recent game, newest first.
+ *
+ * Same idea as `RecentForm.series` for the leagues ESPN serves a game log for
+ * (lib/providers/gamelog.ts) — a single game cannot be priced on its own, so
+ * each point is the window *ending* at that game.
+ */
+function recentSeries(
+  games: NhlGame[] | undefined,
+  isGoalie: boolean
+): Array<{ ts: string; line: StatLine }> {
+  const dated = (games ?? []).filter((g) => Boolean(g.gameDate));
+  const out: Array<{ ts: string; line: StatLine }> = [];
+  for (let i = 0; i + SERIES_WINDOW <= dated.length; i++) {
+    const line = aggregateRecent(dated.slice(i, i + SERIES_WINDOW), isGoalie);
+    if (line) out.push({ ts: dated[i].gameDate as string, line });
+  }
+  return out;
+}
+
+/**
+ * The displayable half: the same games as rows for the player page.
+ *
+ * Carried on `RawPlayer.gameLog` rather than fetched again by the ingest, for
+ * the reason NBA and MLB carry theirs — the landing payload already has them,
+ * and the second identical request per athlete bought nothing. It also has to
+ * be the same array the series was built from, because the ingest joins the two
+ * by date to price each row.
+ */
+function toGameLog(games: NhlGame[] | undefined, isGoalie: boolean, limit: number): GameLogEntry[] {
+  return (games ?? []).slice(0, limit).map((g) => ({
+    date: g.gameDate ?? "",
+    opponent: g.opponentAbbrev ?? null,
+    homeAway: g.homeRoadFlag === "H" ? "home" : g.homeRoadFlag === "R" ? "away" : null,
+    summary: isGoalie
+      ? `${g.decision ?? "—"} · ${g.savePctg != null ? g.savePctg.toFixed(3) : "—"} SV%`
+      : `${g.goals ?? 0}G ${g.assists ?? 0}A · ${g.shots ?? 0} SOG · ${g.toi ?? "—"} TOI`,
+    headline: isGoalie ? (g.savePctg ?? null) : (g.points ?? null),
+  }));
+}
+
 function fmt(n: number | undefined | null, digits = 0): string {
   if (n == null || !Number.isFinite(n)) return "—";
   return n.toFixed(digits);
@@ -390,21 +447,18 @@ export class NhlProvider implements SportsProvider {
       career,
       careerSeasons,
       statTables: buildStatTables(landing, isGoalie),
+      // Both halves of the short chart ranges, from the payload already in
+      // hand. Without the series the ingest has nothing to price the log rows
+      // with, so every NHL entry carried a null value and the career chart
+      // offered only its season ranges.
+      recentSeries: recentSeries(landing.last5Games, isGoalie),
+      gameLog: toGameLog(landing.last5Games, isGoalie, 5),
     };
   }
 
   async fetchGameLog(externalId: string, limit: number): Promise<GameLogEntry[]> {
     const id = externalId.replace(/^nhl:/, "");
     const landing = await getJson<NhlLanding>(`${BASE}/player/${id}/landing`);
-    const isGoalie = landing.position === "G";
-    return (landing.last5Games ?? []).slice(0, limit).map((g) => ({
-      date: g.gameDate ?? "",
-      opponent: g.opponentAbbrev ?? null,
-      homeAway: g.homeRoadFlag === "H" ? "home" : g.homeRoadFlag === "R" ? "away" : null,
-      summary: isGoalie
-        ? `${g.decision ?? "—"} · ${g.savePctg != null ? g.savePctg.toFixed(3) : "—"} SV%`
-        : `${g.goals ?? 0}G ${g.assists ?? 0}A · ${g.shots ?? 0} SOG · ${g.toi ?? "—"} TOI`,
-      headline: isGoalie ? (g.savePctg ?? null) : (g.points ?? null),
-    }));
+    return toGameLog(landing.last5Games, landing.position === "G", limit);
   }
 }

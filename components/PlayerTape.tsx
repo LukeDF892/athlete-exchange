@@ -1,7 +1,10 @@
+"use client";
+
 import Link from "next/link";
 import { timeAgo } from "@/lib/format";
 import { isBotUsername } from "@/lib/bots/identity";
-import type { TapeEntry } from "@/lib/market/tape";
+import type { TapeEntry } from "@/lib/market/tape-row";
+import { useLiveTape } from "@/components/useLiveTape";
 
 /**
  * Who has been trading this athlete, and which way.
@@ -9,8 +12,20 @@ import type { TapeEntry } from "@/lib/market/tape";
  * No prices — the `trade_tape` view does not publish the cash a trade moved,
  * and that restraint is deliberate rather than an oversight. Direction and size
  * are what tell you whether the market is accumulating or getting out.
+ *
+ * Live, and narrowed to this listing: the same websocket signal the price above
+ * it uses, so a trade lands in both places at once instead of the price moving
+ * beside a tape that still says nobody has traded today.
  */
-export function PlayerTape({ entries }: { entries: TapeEntry[] }) {
+export function PlayerTape({
+  entries: initial,
+  playerId,
+}: {
+  entries: TapeEntry[];
+  playerId: string;
+}) {
+  const { entries, isNew } = useLiveTape(initial, { playerId, limit: 20 });
+
   if (entries.length === 0) {
     return (
       <p className="px-4 py-6 text-center text-sm text-ink-500">
@@ -28,7 +43,12 @@ export function PlayerTape({ entries }: { entries: TapeEntry[] }) {
       </p>
       <ul className="divide-y divide-ink-800">
         {entries.map((t) => (
-          <li key={t.id} className="flex items-center gap-3 px-4 py-2.5 text-sm">
+          <li
+            key={t.id}
+            className={`flex items-center gap-3 px-4 py-2.5 text-sm ${
+              isNew(t.id) ? "rise" : ""
+            }`}
+          >
             <span
               className={`w-12 shrink-0 text-[11px] font-bold uppercase ${
                 t.side === "buy" ? "text-up" : "text-down"

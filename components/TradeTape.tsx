@@ -1,6 +1,9 @@
+"use client";
+
 import Link from "next/link";
 import { timeAgo } from "@/lib/format";
-import type { TapeEntry } from "@/lib/market/tape";
+import type { TapeEntry } from "@/lib/market/tape-row";
+import { useLiveTape } from "@/components/useLiveTape";
 
 /**
  * The market's own activity, most recent first.
@@ -9,8 +12,13 @@ import type { TapeEntry } from "@/lib/market/tape";
  * decision (see the `trade_tape` view) and partly an editorial one: the point
  * is to show the room is occupied, and a wall of dollar figures would turn a
  * glance into reading.
+ *
+ * A tape that only updated on reload was showing the room as it was occupied
+ * whenever you happened to load the page, which is the one thing a tape must
+ * not do — so it now follows the market over the same websocket the board uses.
  */
-export function TradeTape({ entries }: { entries: TapeEntry[] }) {
+export function TradeTape({ entries: initial }: { entries: TapeEntry[] }) {
+  const { entries, isNew } = useLiveTape(initial, { limit: 12 });
   if (entries.length === 0) return null;
 
   return (
@@ -22,7 +30,7 @@ export function TradeTape({ entries }: { entries: TapeEntry[] }) {
 
       <ul className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {entries.map((t) => (
-          <li key={t.id} className="shrink-0">
+          <li key={t.id} className={`shrink-0 ${isNew(t.id) ? "rise" : ""}`}>
             <Link
               href={`/player/${t.playerId}`}
               className="flex w-56 flex-col gap-1 rounded-xl border border-ink-750 bg-ink-875 px-3 py-2.5 transition-colors hover:bg-ink-850"

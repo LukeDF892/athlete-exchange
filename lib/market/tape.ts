@@ -11,21 +11,9 @@
  */
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import type { Sport } from "@/lib/pricing/engine";
+import { toTapeEntry, type TapeEntry, type TapeRow } from "@/lib/market/tape-row";
 
-export interface TapeEntry {
-  id: string;
-  createdAt: string;
-  side: "buy" | "sell";
-  shares: number;
-  username: string;
-  playerId: string;
-  playerName: string;
-  sport: Sport;
-  teamAbbrev: string | null;
-  /** Bots are labelled, so nobody mistakes one for a person. */
-  isBot: boolean;
-}
+export type { TapeEntry } from "@/lib/market/tape-row";
 
 export async function getTradeTape(limit = 12): Promise<TapeEntry[]> {
   if (!isSupabaseConfigured()) return [];
@@ -38,18 +26,7 @@ export async function getTradeTape(limit = 12): Promise<TapeEntry[]> {
       .limit(limit);
     if (error || !data) return [];
 
-    return data.map((r) => ({
-      id: String(r.id),
-      createdAt: String(r.created_at),
-      side: r.side as "buy" | "sell",
-      shares: Number(r.shares),
-      username: String(r.username),
-      playerId: String(r.player_id),
-      playerName: String(r.player_name),
-      sport: r.sport as Sport,
-      teamAbbrev: r.team_abbrev as string | null,
-      isBot: /^bot_/.test(String(r.username)),
-    }));
+    return (data as TapeRow[]).map(toTapeEntry);
   } catch {
     return [];
   }
@@ -80,18 +57,7 @@ export async function getPlayerTape(playerId: string, limit = 20): Promise<TapeE
       .limit(limit);
     if (error || !data) return [];
 
-    return data.map((r) => ({
-      id: String(r.id),
-      createdAt: String(r.created_at),
-      side: r.side as "buy" | "sell",
-      shares: Number(r.shares),
-      username: String(r.username),
-      playerId: String(r.player_id),
-      playerName: String(r.player_name),
-      sport: r.sport as Sport,
-      teamAbbrev: r.team_abbrev as string | null,
-      isBot: /^bot_/.test(String(r.username)),
-    }));
+    return (data as TapeRow[]).map(toTapeEntry);
   } catch {
     return [];
   }

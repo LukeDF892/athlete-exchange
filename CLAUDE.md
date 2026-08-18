@@ -44,14 +44,18 @@ fee believing it is load-bearing for that.
 4. **To dollars**: `($4 + (score/100)^2.1 × $476) × ageMultiplier`, then an
    injury multiplier.
 
-All three leagues now fill the `recent` window. NBA and MLB read ESPN's
-common-v3 gamelog endpoint (`lib/providers/gamelog.ts`), which costs one extra
-request per athlete and also supplies the per-game log the player page shows —
-so it is fetched once and carried through `RawPlayer.gameLog`, never twice.
+All four leagues fill the `recent` window, and all four now also supply the
+per-game series the short chart ranges are drawn from. NBA, MLB and NFL read
+ESPN's common-v3 gamelog endpoint (`lib/providers/gamelog.ts`), which costs one
+extra request per athlete and also supplies the per-game log the player page
+shows — so it is fetched once and carried through `RawPlayer.gameLog`, never
+twice. The NHL needs no extra request at all: its landing payload already
+carries `last5Games`, which is both the window and the log.
 **Rate stats in that window are recomputed, never averaged**: a 1-for-1 night
 and an 8-for-19 night do not average to the shooting that happened, the feed's
 OPS column is season-to-date rather than per game, and `6.2` innings means six
-and two thirds. Full three-league ingest: ~105-120s, against a 300s cron cap.
+and two thirds. Full four-league ingest: ~340s in principle, 18 minutes on this
+machine — so the daily refresh runs one league per cron.
 
 ### Hard-won lessons — do not undo these
 
@@ -122,9 +126,45 @@ and two thirds. Full three-league ingest: ~105-120s, against a 300s cron cap.
   finer grain. Note `productionScore` clamps at 100, so a superstar on an
   exceptional run flatlines at the top of the scale; that is the market's scale,
   not a bug, and raising the clamp would reprice every listing.
+- **Every provider carries its own game log; there is no second pass.** The
+  ingest used to re-fetch the NHL log *after* pricing (`attachGameLogs`), which
+  overwrote each row with an unvalued copy — the real reason no NHL listing ever
+  had chart values, on top of the missing series. `RawPlayer.gameLog` and
+  `recentSeries` now come out of the same payload for all four leagues, and
+  `withGameValues()` joins them by date, so a provider that sets one must set
+  the other from the *same* array or the join silently finds nothing.
+- **The NHL series is a three-game window, not five.** `recent` is priced on all
+  five games the landing feed gives, but the *series* walks a three-game window
+  forward, because five would leave every point after the first measured over
+  four games, then three, then two — and `shrinkToReplacement` regresses a small
+  sample, so that draws a rising line for every player whether or not anyone is
+  playing well. Equal windows are what make the shape mean anything. Five games
+  yields three points; McDavid's two oldest rows have a null value by design.
+- **The short ranges are wall-clock, so they vanish out of season.** The chart
+  offers 1W/1M only when two valued games fall inside the last 7 or 30 *days*.
+  In August that is MLB and nothing else: NHL rows carry values now, but they
+  are April games, so an NHL chart still shows only 3Y/5Y/10Y/ALL until October.
+  Values present and buttons absent is the correct state, not a regression.
 - **Client components must not import from modules that touch
   `lib/supabase/server`** — it drags `next/headers` into the browser bundle and
-  breaks the build. Pure constants live in `lib/market/types.ts`.
+  breaks the build. Pure constants live in `lib/market/types.ts`; the tape's row
+  type and its mapper live in `lib/market/tape-row.ts` for the same reason, so
+  the browser and the server read a `trade_tape` row through one function.
+- **Realtime obeys RLS, so a live tape cannot listen to `trades`.** The obvious
+  wiring — subscribe to INSERTs on `trades` — fails in the most misleading way
+  available: "trades are self-readable" applies to the websocket too, so a
+  browser is told about its own trades and nothing else. The tape would look
+  alive for the trades you just made and dead for every bot. `useLiveTape`
+  therefore separates the *signal* from the *data*: `players` is public
+  (migration 0013) and every trade updates the row it traded, so a price change
+  says "something happened", and the tape is then re-read from `trade_tape`,
+  which is granted to `anon`. Refetches are debounced 800ms because an ingest
+  updates every listing on the board and that is one refresh, not 5,344.
+- **One subscription per player page, shared by context.** `LivePlayerProvider`
+  wraps the page and the header price, the position panel and the trade ticket
+  all read `useLiveQuote()`. Adding a fourth consumer costs nothing; opening a
+  second channel per component would cost a socket subscription each and, if two
+  ever shared a topic name, would conflict rather than duplicate.
 - **Injury matching is by name**, because ESPN's injury feed has no athlete
   ids. `InjuryIndex` resolves team+name first, then name, then first-initial +
   surname, and **refuses to answer when a tier is ambiguous** — two athletes
@@ -274,24 +314,37 @@ and two thirds. Full three-league ingest: ~105-120s, against a 300s cron cap.
 
 ## Where things stand
 
-Everything below is deployed and committed. Two things are known broken:
+Everything below is deployed and committed. Both of the previously known-broken
+items are fixed and were watched working on the deployed build:
 
-1. **Per-game chart values are missing for NHL and for stale rows.** The career
-   chart's 1W/1M ranges need `gameLog[].value`, which only exists where a
-   provider sets `recentSeries`. `lib/providers/nhl.ts` never does, so no NHL
-   player has them; anything ingested before that feature shipped lacks them
-   too. Fix: give the NHL provider a series from its landing feed's
-   `last5Games`, then re-ingest all four leagues.
-2. **Live updates only cover the market board.** `useLivePrices` is imported by
-   `MarketBoard` and nothing else, and was never verified on screen. The player
-   page price, the position panel and both trade tapes are server-rendered and
-   never move. `players` and `trades` are both in the `supabase_realtime`
-   publication, so the plumbing is there — the components just do not listen.
-   Verify by watching a value change during a bot slot, not by assuming.
+1. **Per-game chart values.** The NHL provider now builds `recentSeries` from
+   its landing feed and carries the log alongside it, and all four leagues were
+   re-ingested and pushed (5,344 listings). 777 of 905 NHL listings carry values
+   where before none did; MLB 1,411, NFL 1,515, NBA 473. Verified on screen:
+   Junior Caminero's chart offers 1W and draws value-by-game. NHL charts still
+   show only season ranges, correctly — see the wall-clock note above.
+2. **Live updates.** The player page price, its trade tape, the market-wide
+   tape and the trade ticket's quote all follow the websocket now, through one
+   subscription per page (`LivePlayerProvider`). Watched on the production build
+   during bot slot 84: Ben Meyers went $12.37 → $11.63 with the premium line and
+   the ticket's spot price following it and the tape gaining the trade, no
+   reload. The market tape recorded 57 live updates over a 3½-hour session.
+
+Still not watched on screen: **the position panel** (`YourPosition`). It reads
+the same `LiveQuote` context as the header price that was verified, but showing
+it needs a signed-in account holding shares, and signing in is the user's to do.
+To close that: open a listing you hold during a slot (11:00-01:50 UTC, every ten
+minutes) and watch "Market value".
 
 Also outstanding, needing the user rather than code: `gh` is not installed so
 the repo has no remote; email needs a Resend key (`RESEND_API_KEY` +
 `DIGEST_FROM`); and five sibling projects in this folder are still unversioned.
+
+One thing found while verifying and left alone: **the player page overflows
+sideways on a phone** — 152px at a 375px viewport, from the Upcoming games
+fixture row, not from anything live. The previous production build does exactly
+the same, so it arrived with `/games`, not with this work. The homepage measures
+0, so the rule in the mobile note still holds where it was applied.
 
 ## This machine
 
@@ -322,6 +375,18 @@ the repo has no remote; email needs a Resend key (`RESEND_API_KEY` +
   Supabase SQL editor via the Chrome extension; the user copying anything
   mid-flow clobbers it. Always screenshot and verify the editor contents
   before clicking Run.
+- **`npm run dev` is not a usable way to look at this app here.** Two attempts:
+  "Ready in 5.7min", then no page served in the ten minutes after that. `eslint`
+  died in the same session with `ETIMEDOUT` reading a file out of
+  `node_modules`, which is a disk fault dressed as a lint error, so the disk
+  note above is doing more damage than it looks. **Verify on a Vercel preview
+  instead** — `vercel deploy` builds in ~30s, talks to the same Supabase
+  project, and is not deployment-protected, so the browser can drive it. That is
+  not the same as using the remote build as a typechecker: typecheck locally
+  first, then deploy a preview to *look* at it.
+- **A four-league ingest takes ~18 minutes on this machine**, against the ~340s
+  the code comments assume. Budget for that; it is disk, not the feeds (zero
+  feed errors across all four leagues in that run).
 
 ## Commands
 
@@ -335,9 +400,20 @@ npm run verify:rls           # proves a user cannot set their own cash or admin 
 npm run bots:seed            # create/repair the 12 bot accounts (needs BOT_SECRET)
 npm run reset:market -- --yes  # DESTRUCTIVE: back to opening day, see below
 ./node_modules/.bin/tsc --noEmit
-vercel deploy --prod         # then re-point the alias, see below
+vercel deploy                # preview build, for looking at a change (see above)
+vercel deploy --prod         # then re-point both aliases, see below
 vercel alias set <deployment-url> athlete-exchange-live.vercel.app
+vercel alias set <deployment-url> athlete-exchange-six.vercel.app
 ```
 
-Aliases attach to a specific deployment, so **every deploy needs the alias
-re-pointed** or the live URL keeps serving the old build.
+Aliases attach to a specific deployment, so **every deploy needs the aliases
+re-pointed** or the live URL keeps serving the old build. There are **two** to
+move: `athlete-exchange-live` and `athlete-exchange-six`. A production deploy
+re-points `-six` and the project's own
+`athlete-exchange-lukeflewwelling-3409s-projects` alias by itself, but never
+`-live`, which is the one people use. Confirm with `vercel alias ls`.
+
+A bot slot can be run on demand for testing:
+`curl -H "Authorization: Bearer $CRON_SECRET" "<site>/api/cron/bots?slot=N"` —
+slot indexes run 0-89 over `SLOT_TIMES`, and a run spreads ~10 orders across
+~240s, so watching one is a four-minute job, not an instant one.

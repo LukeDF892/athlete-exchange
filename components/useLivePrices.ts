@@ -31,8 +31,14 @@ export interface LivePrice {
  * Returns a map keyed by player id containing only the players that have
  * actually changed since mount; callers fall back to their server-rendered
  * price for everything else.
+ *
+ * Pass `playerId` to watch a single listing. That narrows the subscription
+ * server-side rather than filtering the results here, so a player page does not
+ * wake up for all ~4,000 rows a nightly ingest touches — and it needs its own
+ * channel name, because two channels sharing a topic on one socket is a
+ * conflict rather than two subscriptions.
  */
-export function useLivePrices(enabled: boolean): Record<string, LivePrice> {
+export function useLivePrices(enabled: boolean, playerId?: string): Record<string, LivePrice> {
   const [prices, setPrices] = useState<Record<string, LivePrice>>({});
 
   useEffect(() => {
@@ -40,10 +46,15 @@ export function useLivePrices(enabled: boolean): Record<string, LivePrice> {
 
     const supabase = getSupabaseBrowserClient();
     const channel = supabase
-      .channel("market-prices")
+      .channel(playerId ? `player-price:${playerId}` : "market-prices")
       .on(
         "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "players" },
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "players",
+          ...(playerId ? { filter: `id=eq.${playerId}` } : {}),
+        },
         (payload: RealtimePostgresUpdatePayload<PlayerPriceRow>) => {
           const row = payload.new;
           setPrices((prev) => {
@@ -70,7 +81,7 @@ export function useLivePrices(enabled: boolean): Record<string, LivePrice> {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [enabled]);
+  }, [enabled, playerId]);
 
   return prices;
 }

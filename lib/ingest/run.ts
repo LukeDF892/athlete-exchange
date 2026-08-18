@@ -237,15 +237,6 @@ async function fetchSport(provider: SportsProvider, limit: number): Promise<RawP
   return raws;
 }
 
-async function attachGameLogs(provider: SportsProvider, players: Player[]): Promise<void> {
-  if (!provider.fetchGameLog) return;
-  const mine = players.filter((p) => p.sport === provider.sport);
-  const results = await mapPool(mine, CONCURRENCY, (p) => provider.fetchGameLog!(p.externalId, 5));
-  results.forEach((r, i) => {
-    if (r.ok && r.value.length > 0) mine[i].gameLog = r.value;
-  });
-}
-
 /**
  * Listings for leagues that failed this run, read back off the last snapshot.
  *
@@ -414,10 +405,12 @@ export async function runIngest(options: IngestOptions = {}): Promise<IngestResu
   console.log(`[teams] built ${teams.length} team index listings`);
   players.push(...teams);
   players.sort((a, b) => b.fairValue - a.fairValue);
-  process.stdout.write("[game logs] fetching… ");
-  await attachGameLogs(nhl, players);
-  console.log("done");
 
+  // No separate game-log pass. Every provider now carries its recent games on
+  // `RawPlayer.gameLog`, so the log is already priced by `withGameValues()`
+  // above — re-fetching it here would overwrite each row's value with a null
+  // and cost ~800 requests to do it, which is precisely how the NHL lost its
+  // per-game chart values.
   process.stdout.write("[news] fetching feeds… ");
   let news: NewsItem[] = [];
   try {

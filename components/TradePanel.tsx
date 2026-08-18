@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import type { Player } from "@/lib/market/types";
 import { quoteBuy, quoteSell, positionLimit, TRADE_FEE_RATE } from "@/lib/pricing/engine";
 import { money, signedMoney, signedPct, trendClass } from "@/lib/format";
+import { useLiveQuote } from "@/components/LivePlayer";
 import { executeTrade } from "@/app/actions/trade";
 
 /**
@@ -40,16 +41,34 @@ export function TradePanel({
 
   const shares = Math.max(0, Math.floor(Number(raw) || 0));
 
+  /**
+   * Price the ticket off the live curve, not the one this page was rendered
+   * with.
+   *
+   * The header above it moves the moment anyone trades, so a ticket still
+   * quoting the load-time spot price sat beside a different number for the same
+   * listing. `execute_trade()` recomputes from server state either way, so this
+   * was never a correctness problem — it was the panel telling you a cost that
+   * was no longer the one you would pay. Depth is not part of it: liquidity
+   * only changes at ingest, never on a trade.
+   */
+  const live = useLiveQuote({
+    marketPrice: player.marketPrice,
+    fairValue: player.fairValue,
+    sharesOutstanding: player.sharesOutstanding,
+    direction: null,
+  });
+
   const quote = useMemo(() => {
     if (shares <= 0) return null;
     try {
       return side === "buy"
-        ? quoteBuy(player.fairValue, player.sharesOutstanding, shares, player.liquidityDepth)
-        : quoteSell(player.fairValue, player.sharesOutstanding, shares, player.liquidityDepth);
+        ? quoteBuy(live.fairValue, live.sharesOutstanding, shares, player.liquidityDepth)
+        : quoteSell(live.fairValue, live.sharesOutstanding, shares, player.liquidityDepth);
     } catch {
       return null;
     }
-  }, [side, shares, player]);
+  }, [side, shares, live, player.liquidityDepth]);
 
   const slippagePct = quote ? ((quote.avgPrice - quote.priceBefore) / quote.priceBefore) * 100 : null;
 
@@ -111,8 +130,8 @@ export function TradePanel({
     // Buying: round-trip cost right now, which is slippage (plus any fee).
     try {
       const back = quoteSell(
-        player.fairValue,
-        player.sharesOutstanding + shares,
+        live.fairValue,
+        live.sharesOutstanding + shares,
         shares,
         player.liquidityDepth
       );
@@ -126,7 +145,7 @@ export function TradePanel({
     } catch {
       return null;
     }
-  }, [side, shares, quote, sharesHeld, avgCost, player]);
+  }, [side, shares, quote, sharesHeld, avgCost, live, player.liquidityDepth]);
 
   async function submit() {
     if (!quote || shares <= 0) return;
