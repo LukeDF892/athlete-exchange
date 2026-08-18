@@ -716,6 +716,42 @@ export function quoteBuy(
   };
 }
 
+/**
+ * What a position is actually worth: the cash you would have if you closed it.
+ *
+ * Not `shares x marketPrice`. On a bonding curve the spot price is the price of
+ * the *next* share, not of the ones you hold — selling walks back down the
+ * curve, so a position is worth the area under it, which is always less than
+ * the spot mark. Marking at spot therefore books your own price impact as
+ * profit the instant you buy: 120 shares of a $9,236-depth listing showed
+ * +0.84% before anything at all had happened, and larger positions showed +10%
+ * on a round trip that returns exactly what it cost. Worse, it could show a
+ * gain on a position that would realise a loss.
+ *
+ * A short is the mirror: its value is what covering would cost, carried
+ * negative so net worth stays cash plus the sum of positions.
+ *
+ * Falls back to the spot mark if the curve cannot answer — one holder can be
+ * long more than the market's net outstanding when someone else is short, and
+ * an unanswerable quote must not take a portfolio page down with it.
+ */
+export function positionValue(
+  fair: number,
+  sharesOutstanding: number,
+  shares: number,
+  depth?: number
+): number {
+  if (shares === 0) return 0;
+  const L = depth ?? liquidityDepth(fair);
+  try {
+    return shares > 0
+      ? quoteSell(fair, sharesOutstanding, shares, L).net
+      : -quoteBuy(fair, sharesOutstanding, -shares, L).net;
+  } catch {
+    return round2(shares * marketPrice(fair, sharesOutstanding, L));
+  }
+}
+
 export function quoteSell(
   fair: number,
   sharesOutstanding: number,

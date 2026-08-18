@@ -1,4 +1,5 @@
 import { isSupabaseConfigured } from "@/lib/supabase/config";
+import { positionValue } from "@/lib/pricing/engine";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Sport } from "@/lib/pricing/engine";
 import type { NewsItem, Player } from "./types";
@@ -160,15 +161,27 @@ export async function getPortfolio(): Promise<PortfolioSummary | null> {
       const shares = Number(h.shares);
       const avgCost = Number(h.avg_cost);
       /**
-       * Negative shares are a short, and both numbers flip meaning.
+       * Marked at what closing the position would actually pay, not at spot.
        *
+       * `shares x marketPrice` counted your own price impact as profit — a
+       * fresh buy showed a gain before anything had happened, and one real
+       * position read +7.06% while selling it would have realised -2.97%.
+       * `positionValue()` walks the curve instead, which is the same number
+       * execute_trade() would pay out.
+       *
+       * Negative shares are a short, and both numbers flip meaning.
        * `marketValue` becomes what it would cost to buy the position back —
        * carried as a negative, so net worth is still cash plus the sum of
        * positions. `costBasis` is what you were paid to open it. Profit is
        * therefore still value minus basis, which for a short is positive when
        * the price has fallen: exactly the same arithmetic, no special case.
        */
-      const marketValue = shares * player.marketPrice;
+      const marketValue = positionValue(
+        player.fairValue,
+        player.sharesOutstanding,
+        shares,
+        player.liquidityDepth
+      );
       const costBasis = shares * avgCost;
 
       return {

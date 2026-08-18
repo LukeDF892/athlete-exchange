@@ -238,6 +238,7 @@ export default async function PlayerPage(props: PageProps<"/player/[id]">) {
               marketPrice={player.marketPrice}
               fairValue={player.fairValue}
               sharesOutstanding={player.sharesOutstanding}
+              liquidityDepth={player.liquidityDepth}
             />
           )}
           <TradePanel

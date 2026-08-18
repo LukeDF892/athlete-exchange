@@ -11,6 +11,7 @@ import {
   shrinkToReplacement,
   TRADE_FEE_RATE,
   positionLimit,
+  positionValue,
   type StatLine,
 } from "../lib/pricing/engine.ts";
 import { calibrateLeague } from "../lib/pricing/calibrate.ts";
@@ -511,4 +512,41 @@ test("position limits bound how far one trader can move a price", () => {
   const deep = quoteBuy(400, 0, positionLimit(17_658), 17_658);
   const deepImpact = (deep.priceAfter - 400) / 400;
   assert.ok(Math.abs(deepImpact - impact) < 0.01, "impact should not depend on price");
+});
+
+/**
+ * A position is worth what closing it pays, not shares x spot.
+ *
+ * The spot mark counted your own price impact as profit: buy 120 shares and the
+ * panel showed a gain before anything had happened, on a round trip that
+ * returns exactly what it cost. These pin the invariant CLAUDE.md has always
+ * claimed — an instant round trip is break-even — to the number the UI shows.
+ */
+test("a fresh position is worth what it cost, not more", () => {
+  const fair = 205.24;
+  const depth = 7133;
+  for (const shares of [10, 50, 120, 500]) {
+    const buy = quoteBuy(fair, 0, shares, depth);
+    const marked = positionValue(fair, shares, shares, depth);
+    const atSpot = shares * marketPrice(fair, shares, depth);
+
+    assert.ok(
+      Math.abs(marked - buy.net) <= 0.02,
+      `${shares} shares: marked ${marked} should equal the ${buy.net} paid`
+    );
+    // And the old mark really was higher, which is the bug this replaces.
+    assert.ok(atSpot > marked, `${shares} shares: spot mark ${atSpot} should exceed ${marked}`);
+  }
+});
+
+test("a short is marked at what covering costs, carried negative", () => {
+  const fair = 100;
+  const depth = 4500;
+  const open = quoteSell(fair, 0, 60, depth);
+  const marked = positionValue(fair, -60, -60, depth);
+  assert.ok(marked < 0, "a short position is a liability");
+  assert.ok(
+    Math.abs(Math.abs(marked) - open.net) <= 0.02,
+    `covering should cost the ${open.net} received, got ${Math.abs(marked)}`
+  );
 });

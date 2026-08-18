@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { money, signedMoney, signedPct, trendClass } from "@/lib/format";
+import { positionValue } from "@/lib/pricing/engine";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { useLivePrices } from "@/components/useLivePrices";
 
@@ -137,15 +138,20 @@ export function YourPosition({
   marketPrice,
   fairValue,
   sharesOutstanding,
+  liquidityDepth,
 }: {
   shares: number;
   avgCost: number;
   marketPrice: number;
   fairValue: number;
   sharesOutstanding: number;
+  liquidityDepth: number;
 }) {
   const quote = useLiveQuote({ marketPrice, fairValue, sharesOutstanding, direction: null });
-  const value = shares * quote.marketPrice;
+  // What closing this position would pay, not shares x spot — see
+  // positionValue(). Recomputed live, because both inputs move when anyone
+  // trades this listing.
+  const value = positionValue(quote.fairValue, quote.sharesOutstanding, shares, liquidityDepth);
   const flash = useFlash(quote.marketPrice, quote.direction);
   const basis = shares * avgCost;
   const pnl = value - basis;
@@ -166,8 +172,8 @@ export function YourPosition({
           <dd className="tnum text-ink-200">{money(avgCost)}</dd>
         </div>
         <div className="flex items-center justify-between">
-          <dt className="text-ink-400">Market value</dt>
-          <dd className={`tnum rounded px-1 text-ink-100 ${flash}`}>{money(value)}</dd>
+          <dt className="text-ink-400">{shares < 0 ? "Cost to cover" : "If you sold now"}</dt>
+          <dd className={`tnum rounded px-1 text-ink-100 ${flash}`}>{money(Math.abs(value))}</dd>
         </div>
         <div className="my-2 border-t border-ink-750" />
         <div className="flex items-center justify-between">
