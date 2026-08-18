@@ -37,7 +37,7 @@ import {
   type Calibration,
   type Sport,
 } from "@/lib/pricing/engine";
-import { loadCalibration } from "@/lib/market/calibration";
+import { loadCalibration, loadCalibratedSports } from "@/lib/market/calibration";
 import { fetchActiveTeams } from "@/lib/providers/active";
 import { mapPool } from "@/lib/providers/http";
 import { NhlProvider } from "@/lib/providers/nhl";
@@ -124,11 +124,20 @@ export async function refreshLiveGames(
   const calibration: Calibration | null = await loadCalibration(db);
   if (!calibration) return done({ skipped: "no calibration stored yet" });
 
+  // Only leagues an ingest has actually measured. A league sitting at the
+  // built-in fallback marks looks identical to a measured one in the stored
+  // calibration, and pricing against marks nobody took would move every listing
+  // in that league for a reason unrelated to any game — the exact failure mode
+  // that the per-sport merge exists to prevent, one level up.
+  const measured = await loadCalibratedSports(db);
+  if (measured.length === 0) return done({ skipped: "no league measured yet" });
+
   const active = await fetchActiveTeams(lookbackHours);
   const activeSports = [...active.entries()]
     .filter(([, g]) => g.live.size > 0 || g.recent.size > 0)
-    .map(([s]) => s);
-  if (activeSports.length === 0) return done({ skipped: "nothing in play" });
+    .map(([s]) => s)
+    .filter((s) => measured.includes(s));
+  if (activeSports.length === 0) return done({ skipped: "nothing in play in a measured league" });
 
   // Live games first: those are the ones somebody is watching right now.
   const rows: PlayerRow[] = [];
@@ -145,6 +154,12 @@ export async function refreshLiveGames(
         .eq("sport", sport)
         .eq("kind", "athlete")
         .in("team_abbrev", teams)
+        // Least recently touched first. A busy MLB night puts far more players
+        // on the board than one slot can re-read, and without an ordering the
+        // same first 220 were refreshed every ten minutes while the rest were
+        // never reached at all. Staleness order makes the cap a rotation
+        // instead of a cut.
+        .order("updated_at", { ascending: true })
         .limit(MAX_PLAYERS);
       for (const r of (data ?? []) as unknown as PlayerRow[]) {
         if (rows.length >= MAX_PLAYERS) break;

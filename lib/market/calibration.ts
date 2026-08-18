@@ -17,6 +17,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { DEFAULT_CALIBRATION, type Calibration, type Sport } from "@/lib/pricing/engine";
 
 const KEY = "calibration";
+const SPORTS_KEY = "calibration_sports";
 
 /**
  * Merge a run's calibration into what is stored, one sport at a time.
@@ -60,6 +61,30 @@ export async function saveCalibration(
     .from("market_meta")
     .upsert({ key: KEY, value: merged, updated_at: new Date().toISOString() });
   if (error) throw error;
+
+  // Which leagues have actually been measured, as opposed to sitting at the
+  // built-in fallback. Without this the stored calibration is indistinguishable
+  // from a measured one for a league no ingest has ever run — and the live
+  // refresh would reprice, say, an NFL preseason roster against marks nobody
+  // took, moving real prices for no reason at all.
+  const measured = new Set([...(await loadCalibratedSports(db)), ...sports]);
+  const { error: sportsErr } = await db.from("market_meta").upsert({
+    key: SPORTS_KEY,
+    value: [...measured],
+    updated_at: new Date().toISOString(),
+  });
+  if (sportsErr) throw sportsErr;
+}
+
+/** Leagues whose median and elite marks come from a real measurement. */
+export async function loadCalibratedSports(db: SupabaseClient): Promise<Sport[]> {
+  const { data, error } = await db
+    .from("market_meta")
+    .select("value")
+    .eq("key", SPORTS_KEY)
+    .maybeSingle();
+  if (error || !Array.isArray(data?.value)) return [];
+  return data.value as Sport[];
 }
 
 /**
