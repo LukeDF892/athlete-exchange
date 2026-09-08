@@ -19,6 +19,7 @@ export function TradePanel({
   player,
   tradingEnabled = false,
   cash = null,
+  collateral = 0,
   sharesHeld = 0,
   avgCost = 0,
   blockedReason = "no-database",
@@ -26,6 +27,8 @@ export function TradePanel({
   player: Player;
   tradingEnabled?: boolean;
   cash?: number | null;
+  /** Locked by open shorts; shown so buying power below cash is explicable. */
+  collateral?: number;
   sharesHeld?: number;
   avgCost?: number;
   blockedReason?: "no-database" | "signed-out";
@@ -273,6 +276,14 @@ export function TradePanel({
       {tradingEnabled && cash != null && (
         <p className="mt-3 text-center text-[11px] text-ink-400">
           Buying power <span className="tnum text-ink-200">{money(cash)}</span>
+          {collateral > 0 && (
+            <>
+              {" · "}
+              <span title="Open shorts lock 1.5x their proceeds as collateral">
+                {money(collateral)} locked
+              </span>
+            </>
+          )}
           {sharesHeld > 0 && (
             <>
               {" · "}holding <span className="tnum text-ink-200">{sharesHeld}</span> shares

@@ -41,11 +41,29 @@ export interface BotIdentity {
  * buying sometimes begets buying — and value bots can short, which gives them a
  * way to press an overpriced listing without needing to own it first.
  */
-const ROSTER: Strategy[] = [
-  ...Array<Strategy>(20).fill("momentum"),
-  ...Array<Strategy>(18).fill("value"),
-  ...Array<Strategy>(12).fill("noise"),
-];
+/**
+ * Value bots only, and few of them.
+ *
+ * Fifty bots made sense when three people traded: they were there so an empty
+ * room looked occupied. With twenty or more real traders that job is done by
+ * the traders, and the bots stop being scenery and start being the market —
+ * they ran about 1,150 trades a day against a human total of nearly zero, so
+ * whichever listings the momentum bots piled into decided who won. In a
+ * competition meant to reward reading a sport, that is luck wearing a
+ * scoreboard.
+ *
+ * What is kept is the one bot behaviour with a job that humans will not do for
+ * themselves. The curve mints a share on every buy, so twenty people buying
+ * their favourites is one-directional pressure with nothing pushing back, and
+ * the board inflates until buying early beats picking well. Value bots sell
+ * into a premium past 12% — they act only when a price has left what production
+ * justifies, which is exactly the intervention a skill contest wants and
+ * exactly the one nobody volunteers to make.
+ *
+ * Momentum and noise are gone: both accumulate, neither corrects, and between
+ * them they were the directional noise.
+ */
+const ROSTER: Strategy[] = [...Array<Strategy>(8).fill("value")];
 
 export function botRoster(): BotIdentity[] {
   return ROSTER.map((strategy, i) => {
@@ -124,15 +142,20 @@ export const SLOT_HOURS = SLOT_TIMES.map((t) => t.hour);
 /**
  * Which bots trade in a given slot.
  *
- * Each slot wakes about four bots, and each bot trades in seven or eight of the
- * ninety slots. Four bots is enough orders to keep a five-minute run busy once
- * they are spaced out, without any one bot trading so often it runs out of cash. Staggering by `(index + slot)` rather than by strategy
- * means momentum and value bots are rarely awake together in the same slot — so
- * a price gets pushed in one slot and argued with a few hours later, instead of
- * both happening at once and cancelling out.
+ * The modulus is unchanged at twelve, which with eight bots means at most one
+ * wakes per slot and two thirds of slots wake nobody at all. That is the right
+ * shape now: these are the eight that correct an overpriced listing, not the
+ * fifty that made the tape look busy, and a corrective force should be
+ * occasional. Each still trades in seven or eight of the ninety slots, so no
+ * single bot runs out of cash pressing the same listing all day.
  */
 export function botsForSlot(slot: number): BotIdentity[] {
-  return botRoster().filter((b) => (b.index + slot) % 12 === 0);
+  const roster = botRoster();
+  // Modulus follows the roster size, so exactly one bot wakes per slot however
+  // many there are. Hardcoding twelve was right at fifty bots and wrong at
+  // eight: two thirds of slots woke nobody, which is a market that stops
+  // correcting for twenty minutes at a time and a test that caught it.
+  return roster.filter((b) => (b.index + slot) % roster.length === 0);
 }
 
 /**

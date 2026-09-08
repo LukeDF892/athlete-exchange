@@ -245,6 +245,7 @@ export default async function PlayerPage(props: PageProps<"/player/[id]">) {
             player={player}
             tradingEnabled={trading.tradingEnabled}
             cash={trading.cash}
+            collateral={trading.collateral}
             sharesHeld={trading.sharesHeld}
             avgCost={trading.avgCost}
             blockedReason={trading.blockedReason}

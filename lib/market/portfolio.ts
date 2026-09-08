@@ -1,4 +1,5 @@
 import { isSupabaseConfigured } from "@/lib/supabase/config";
+import { isBotUsername } from "@/lib/bots/identity";
 import { positionValue } from "@/lib/pricing/engine";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Sport } from "@/lib/pricing/engine";
@@ -32,7 +33,12 @@ export interface PortfolioSummary {
 /** What the trade panel needs to render: are we allowed to trade, and with what. */
 export interface TradingContext {
   tradingEnabled: boolean;
+  /** Buying power: cash balance minus collateral locked by open shorts. */
   cash: number | null;
+  /** The raw balance, which includes short proceeds that are not spendable. */
+  cashBalance: number;
+  /** Locked by open shorts at 1.5x their proceeds. */
+  collateral: number;
   sharesHeld: number;
   /** What the held shares cost on average — the basis a sale is measured against. */
   avgCost: number;
@@ -67,6 +73,8 @@ export async function getTradingContext(playerId: string): Promise<TradingContex
   const off = (blockedReason: "no-database" | "signed-out"): TradingContext => ({
     tradingEnabled: false,
     cash: null,
+    cashBalance: 0,
+    collateral: 0,
     sharesHeld: 0,
     avgCost: 0,
     blockedReason,
@@ -80,7 +88,7 @@ export async function getTradingContext(playerId: string): Promise<TradingContex
     } = await supabase.auth.getUser();
     if (!user) return off("signed-out");
 
-    const [{ data: profile }, { data: holding }] = await Promise.all([
+    const [{ data: profile }, { data: holding }, { data: locked }] = await Promise.all([
       supabase.from("profiles").select("cash_balance").eq("id", user.id).maybeSingle(),
       supabase
         .from("holdings")
@@ -88,11 +96,34 @@ export async function getTradingContext(playerId: string): Promise<TradingContex
         .eq("user_id", user.id)
         .eq("player_id", playerId)
         .maybeSingle(),
+      supabase.from("holdings").select("collateral").eq("user_id", user.id),
     ]);
+
+    /**
+     * Buying power, not cash balance — they stop being the same number the
+     * moment a short is open.
+     *
+     * Opening a short credits the proceeds to `cash_balance` and locks 1.5x
+     * them as collateral, so shorting *costs* buying power. But this panel was
+     * showing the raw balance, which meant a short appeared to hand the trader
+     * money to spend: sell short $1,000 and the number went up by $1,000 when
+     * the amount actually available had fallen by $500.
+     *
+     * Nothing was exploitable — `execute_trade()` checks
+     * `cash_balance - sum(collateral)` server-side and rejects the order — so
+     * the failure was that the app disagreed with itself, and the trader found
+     * out at the point of rejection. This is the same subtraction, computed
+     * from the user's own holdings rather than through the SQL function, so it
+     * stays inside row-level security.
+     */
+    const collateral = (locked ?? []).reduce((a, h) => a + Number(h.collateral ?? 0), 0);
+    const cashBalance = profile ? Number(profile.cash_balance) : 0;
 
     return {
       tradingEnabled: true,
-      cash: profile ? Number(profile.cash_balance) : 0,
+      cash: Math.round((cashBalance - collateral) * 100) / 100,
+      cashBalance,
+      collateral: Math.round(collateral * 100) / 100,
       sharesHeld: holding ? Number(holding.shares) : 0,
       avgCost: holding ? Number(holding.avg_cost) : 0,
       blockedReason: "signed-out",
@@ -456,7 +487,10 @@ export interface LeaderboardRow {
  * self-access only. That is the whole point of the view: usernames and net
  * worth are public to signed-in users, cash and individual positions are not.
  */
-export async function getLeaderboard(limit = 100): Promise<LeaderboardRow[]> {
+export async function getLeaderboard(
+  limit = 100,
+  { includeBots = false }: { includeBots?: boolean } = {}
+): Promise<LeaderboardRow[]> {
   if (!isSupabaseConfigured()) return [];
   try {
     const supabase = await createSupabaseServerClient();
@@ -465,14 +499,29 @@ export async function getLeaderboard(limit = 100): Promise<LeaderboardRow[]> {
     } = await supabase.auth.getUser();
     if (!user) return [];
 
+    // Bots are off the standings by default.
+    //
+    // They are ordinary accounts on purpose — they sign in and call
+    // execute_trade() like anyone else, so the position cap, the cash check and
+    // the rounding all apply to them — but ranking them against people makes a
+    // competition unreadable: a bot that woke in the right slot outranks
+    // someone who made a good call, and the table stops answering the question
+    // it exists to answer. The operator page passes includeBots to see them.
+    //
+    // Fetched deeper than `limit` so removing bots does not leave a short
+    // table, and ranks are assigned after the filter so they read 1, 2, 3.
     const { data, error } = await supabase
       .from("leaderboard")
       .select("id, username, net_worth, holdings_value, position_count")
       .order("net_worth", { ascending: false })
-      .limit(limit);
+      .limit(includeBots ? limit : limit + 60);
     if (error || !data) return [];
 
-    return data.map((r, i) => ({
+    const rows = includeBots
+      ? data
+      : data.filter((r) => !isBotUsername(String(r.username ?? "")));
+
+    return rows.slice(0, limit).map((r, i) => ({
       id: String(r.id),
       username: (r.username as string) ?? "trader",
       netWorth: Number(r.net_worth),

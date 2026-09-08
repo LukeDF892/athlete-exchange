@@ -31,7 +31,8 @@ export default async function AdminPage() {
   const [overview, trades, leaders, audit] = await Promise.all([
     getAdminOverview(),
     getAdminTrades(50),
-    getLeaderboard(10),
+    // The operator sees the bots too — that is the one place they belong.
+    getLeaderboard(10, { includeBots: true }),
     getLastAudit(),
   ]);
 
