@@ -20,7 +20,7 @@
  * the table before anything is written.
  */
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { marketPrice, type Calibration, type Sport } from "@/lib/pricing/engine";
+import { marketPrice, dampenFairValue, type Calibration, type Sport } from "@/lib/pricing/engine";
 import { saveCalibration } from "@/lib/market/calibration";
 import type { NewsItem, Player } from "@/lib/market/types";
 
@@ -107,6 +107,12 @@ export async function pushSnapshot(snapshot: Snapshot): Promise<void> {
     const shares = before?.shares_outstanding ?? 0;
     const depth = before?.liquidity_depth ?? p.liquidityDepth;
     const openingFv = before?.opening_fair_value ?? p.fairValue;
+    // Rate-limited rather than teleported — see dampenFairValue(). The model's
+    // answer is unchanged; only how fast a listing walks to it.
+    const fair = dampenFairValue(before?.fair_value, p.fairValue);
+    // Keep the injury markdown proportional, so "healthy value" still explains
+    // the gap the player page draws.
+    const healthyScale = p.fairValue > 0 ? fair / p.fairValue : 1;
 
     return {
       external_id: p.externalId,
@@ -121,13 +127,13 @@ export async function pushSnapshot(snapshot: Snapshot): Promise<void> {
       headshot_url: p.headshotUrl,
       age_years: p.ageYears,
       is_goalie: p.isGoalie,
-      fair_value: p.fairValue,
+      fair_value: fair,
       opening_fair_value: openingFv,
       liquidity_depth: depth,
       shares_outstanding: shares,
       // Recompute against the NEW fair value but the EXISTING share count,
       // so fundamentals move the price and holders keep their premium.
-      market_price: marketPrice(p.fairValue, shares, depth),
+      market_price: marketPrice(fair, shares, depth),
       prev_close: before?.market_price ?? null,
       stat_tables: p.statTables,
       game_log: p.gameLog,
@@ -135,7 +141,7 @@ export async function pushSnapshot(snapshot: Snapshot): Promise<void> {
       kind: p.kind,
       components: p.components ?? [],
       injury: p.injury,
-      healthy_fair_value: p.healthyFairValue,
+      healthy_fair_value: Math.round(p.healthyFairValue * healthyScale * 100) / 100,
       ...(withDraft ? { draft: p.draft ?? null } : {}),
       updated_at: new Date().toISOString(),
     };

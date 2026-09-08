@@ -752,6 +752,34 @@ export function positionValue(
   }
 }
 
+/**
+ * How far a listing's performance value may move in one refresh.
+ *
+ * The dollar curve is deliberately convex — `($4 + (score/100)^2.1 x $476)` —
+ * so a modest change in production score is a large *multiple* at the cheap end
+ * of the board. A fringe hitter on a hot fortnight is a real signal, but
+ * expressing it as $9.96 -> $102.50 overnight is not a market, it is a
+ * discontinuity: measured on live data, Mickey Gasper moved 10.29x and Hector
+ * Rodriguez 10.04x in a single refresh, both on 15-game samples.
+ *
+ * So the target is unchanged and the *approach* is rate-limited. A listing
+ * converges on what the model says over several days rather than teleporting
+ * there, which keeps direction and magnitude honest while making the path
+ * tradeable. A tenfold repricing still happens — it just takes about ten days,
+ * during which somebody can actually act on it.
+ *
+ * New listings are exempt: with no previous value there is nothing to move from
+ * and the opening price should be the model's answer exactly.
+ */
+export const MAX_FAIR_VALUE_MOVE = 0.25;
+
+export function dampenFairValue(previous: number | null | undefined, next: number): number {
+  if (previous == null || previous <= 0) return next;
+  const ceiling = previous * (1 + MAX_FAIR_VALUE_MOVE);
+  const floor = previous * (1 - MAX_FAIR_VALUE_MOVE);
+  return round2(Math.min(ceiling, Math.max(floor, next)));
+}
+
 export function quoteSell(
   fair: number,
   sharesOutstanding: number,

@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { isAdmin, getAdminOverview, getAdminTrades } from "@/lib/market/admin";
+import { isAdmin, getAdminOverview, getAdminTrades, getLastAudit } from "@/lib/market/admin";
+import { AuditPanel } from "@/components/AuditPanel";
 import { getLeaderboard } from "@/lib/market/portfolio";
 import { money } from "@/lib/format";
 import { ButtonLink, Card, EmptyState, StatTile } from "@/components/ui";
@@ -27,10 +28,11 @@ export default async function AdminPage() {
     );
   }
 
-  const [overview, trades, leaders] = await Promise.all([
+  const [overview, trades, leaders, audit] = await Promise.all([
     getAdminOverview(),
     getAdminTrades(50),
     getLeaderboard(10),
+    getLastAudit(),
   ]);
 
   return (
@@ -47,6 +49,10 @@ export default async function AdminPage() {
           promise every trader.
         </p>
       </header>
+
+      <div className="mb-6">
+        <AuditPanel result={audit} />
+      </div>
 
       {overview && (
         <section className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">

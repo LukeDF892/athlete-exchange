@@ -12,6 +12,7 @@ import {
   TRADE_FEE_RATE,
   positionLimit,
   positionValue,
+  dampenFairValue,
   DEFAULT_CALIBRATION,
   type StatLine,
 } from "../lib/pricing/engine.ts";
@@ -573,4 +574,32 @@ test("merging calibration only replaces the leagues that were measured", () => {
   const merged = mergeCalibration(stored, fresh, ["nhl"]);
   assert.deepEqual(merged.season["nhl-forward"], { median: 44, elite: 96 }, "nhl was measured");
   assert.deepEqual(merged.season["mlb-batter"], { median: 33, elite: 87 }, "mlb must be untouched");
+});
+
+/**
+ * Performance value walks; it does not teleport.
+ *
+ * The dollar curve is convex, so a modest score change is a large multiple at
+ * the cheap end of the board. Measured on live data before this existed: a
+ * fringe hitter went $9.96 -> $102.50 in one refresh, and a reliever $6.49 ->
+ * $57.41. The model's answer is not in dispute — the overnight arrival was.
+ */
+test("fair value moves at most 25% per refresh, in either direction", () => {
+  assert.equal(dampenFairValue(100, 500), 125, "a tenfold model move is capped upward");
+  assert.equal(dampenFairValue(100, 10), 75, "a collapse is capped downward");
+  assert.equal(dampenFairValue(100, 110), 110, "an ordinary move passes through untouched");
+  assert.equal(dampenFairValue(null, 500), 500, "a new listing opens where the model says");
+  assert.equal(dampenFairValue(0, 500), 500, "no usable previous value means no clamp");
+});
+
+test("a capped listing still converges on the model within a fortnight", () => {
+  let value = 9.96;
+  const target = 102.5;
+  let days = 0;
+  while (value < target - 0.01 && days < 60) {
+    value = dampenFairValue(value, target);
+    days++;
+  }
+  assert.ok(days <= 12, `should converge in under a fortnight, took ${days}`);
+  assert.ok(Math.abs(value - target) < 0.02, "and land on the model's answer");
 });

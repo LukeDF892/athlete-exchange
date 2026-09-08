@@ -15,6 +15,7 @@
  */
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import type { AuditResult } from "@/lib/market/audit";
 
 export interface AdminOverview {
   traders: number;
@@ -128,5 +129,37 @@ export async function getAdminTrades(limit = 50): Promise<AdminTrade[]> {
     });
   } catch {
     return [];
+  }
+}
+
+/**
+ * The last recorded audit, for the operator page.
+ *
+ * Read with the service key rather than the operator's own client, because
+ * `market_meta` is revoked from `authenticated` on purpose — it holds the
+ * calibration the whole board is priced against, and nothing signed in has any
+ * business reading or writing it. This is still a read, and it is still behind
+ * the `isAdmin()` gate the rest of this module uses, so the read-only property
+ * of the operator page is intact.
+ */
+export async function getLastAudit(): Promise<AuditResult | null> {
+  if (!isSupabaseConfigured()) return null;
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) return null;
+  try {
+    const { createClient } = await import("@supabase/supabase-js");
+    const db = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY,
+      { auth: { persistSession: false } }
+    );
+    const { data, error } = await db
+      .from("market_meta")
+      .select("value")
+      .eq("key", "audit_last")
+      .maybeSingle();
+    if (error || !data?.value) return null;
+    return data.value as AuditResult;
+  } catch {
+    return null;
   }
 }

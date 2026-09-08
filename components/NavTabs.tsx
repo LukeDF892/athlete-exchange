@@ -10,6 +10,7 @@ const TABS = [
   { href: "/portfolio", label: "Portfolio" },
   { href: "/leaderboard", label: "Ranks" },
   { href: "/news", label: "News" },
+  { href: "/account", label: "Account" },
 ];
 
 /**

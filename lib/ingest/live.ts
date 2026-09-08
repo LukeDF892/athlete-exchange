@@ -32,6 +32,7 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  dampenFairValue,
   fairValue,
   marketPrice,
   type Calibration,
@@ -221,7 +222,10 @@ export async function refreshLiveGames(
     // injury feed, and dropping the multiplier would silently un-discount every
     // hurt player the moment their team next played.
     const multiplier = row.injury?.multiplier ?? 1;
-    const fv = round2(healthy * multiplier);
+    // Same rate limit the daily push applies. A live refresh runs every ten
+    // minutes, so without it a single hot game could walk a cheap listing up
+    // several hundred percent inside an evening.
+    const fv = dampenFairValue(Number(row.fair_value), round2(healthy * multiplier));
 
     // Nothing moved — and a write here is not free: every UPDATE wakes every
     // open page over the websocket and adds a tick to every chart.
