@@ -101,6 +101,9 @@ function toPlayer(
           returnDate: injury.returnDate,
           daysOut: injury.daysOut,
           multiplier: injury.multiplier,
+          // Which tier matched. A discount nobody can trace is a price nobody
+          // can defend.
+          matchedBy: injury.matchedBy ?? null,
         }
       : null,
   };

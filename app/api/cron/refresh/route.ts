@@ -77,6 +77,25 @@ export async function GET(request: Request) {
       // refresh, which is the part that keeps prices current.
     }
 
+    // The invariants, checked while the connection is already open. Four runs
+    // a day, no new cron entry — which matters at 94 of Hobby's 100. Never
+    // allowed to fail the refresh: an audit that breaks the thing it audits is
+    // worse than no audit.
+    let audit = null;
+    try {
+      const { createClient } = await import("@supabase/supabase-js");
+      const { runAudit } = await import("@/lib/market/audit");
+      const db = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!,
+        { auth: { persistSession: false } }
+      );
+      const result = await runAudit(db);
+      audit = { level: result.level, failed: result.checks.filter((c) => c.level !== "green") };
+    } catch (err) {
+      audit = { level: "unknown", error: err instanceof Error ? err.message : String(err) };
+    }
+
     // Last, and never allowed to fail the refresh: prices being current matters
     // more than a mail going out, and this is the step most likely to break
     // because it depends on a third-party provider.
@@ -95,6 +114,7 @@ export async function GET(request: Request) {
       ok: true,
       sports: sports ?? "all",
       ...result,
+      audit,
       snapshots,
       digests,
       seconds: Math.round((Date.now() - started) / 1000),

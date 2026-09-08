@@ -29,6 +29,17 @@ export interface InjuryStatus {
   multiplier: number;
   /** Short human summary for the player page. */
   summary: string;
+  /**
+   * Which tier matched this athlete to this injury.
+   *
+   * Recorded because a discount that appears in one environment and not
+   * another is otherwise indistinguishable from a pricing bug: production
+   * priced Ohtani at $212.01 while a local run of the same code said $278.53,
+   * and 212.01 / 278.53 = 0.761 — an injury multiplier, applied by one run and
+   * not the other, with nothing written down to say which tier fired or
+   * whether it fired at all.
+   */
+  matchedBy?: "team+name" | "name" | "initial+surname";
 }
 
 const ENDPOINTS: Record<Sport, string> = {
@@ -175,10 +186,14 @@ export class InjuryIndex {
 
     if (teamAbbrev) {
       const hit = this.byTeamName.get(`${teamAbbrev.toLowerCase()}|${exact}`);
-      if (hit) return hit.injury;
+      if (hit) return { ...hit.injury, matchedBy: "team+name" };
     }
 
-    return only(this.byName.get(exact)) ?? only(this.byLoose.get(looseNameKey(fullName) ?? ""));
+    const byName = only(this.byName.get(exact));
+    if (byName) return { ...byName, matchedBy: "name" };
+
+    const byLoose = only(this.byLoose.get(looseNameKey(fullName) ?? ""));
+    return byLoose ? { ...byLoose, matchedBy: "initial+surname" } : undefined;
   }
 
   /** Names carrying more than one injured athlete, for the ingest log. */

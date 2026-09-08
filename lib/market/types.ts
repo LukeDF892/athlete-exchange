@@ -90,6 +90,15 @@ export interface PlayerInjury {
   daysOut: number | null;
   /** Multiplier already applied to fairValue. 0.85 = priced 15% down. */
   multiplier: number;
+  /**
+   * Which tier of the name matcher produced this discount.
+   *
+   * The feed has no athlete ids, so a discount is always an inference. Storing
+   * the tier is what makes a price defensible after the fact — production once
+   * priced an athlete 24% below a local run of identical code, and without this
+   * there was no way to tell an injury match from a pricing bug.
+   */
+  matchedBy?: "team+name" | "name" | "initial+surname" | null;
 }
 
 export interface PriceTick {

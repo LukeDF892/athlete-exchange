@@ -139,6 +139,20 @@ export async function refreshLiveGames(
     .filter((s) => measured.includes(s));
   if (activeSports.length === 0) return done({ skipped: "nothing in play in a measured league" });
 
+  /**
+   * Listings a human holds or is watching, so they are refreshed first.
+   *
+   * Only ~230 of 5,476 listings have a position on them. When a busy night puts
+   * more players in the active set than one slot can re-read, the rotation
+   * decides who waits — and it should not be deciding at random between an
+   * athlete somebody owns and the twelfth arm in a bullpen nobody has heard of.
+   */
+  const owned = new Set<string>();
+  for (const table of ["holdings", "watchlist"] as const) {
+    const { data } = await db.from(table).select("player_id").limit(2000);
+    for (const r of data ?? []) owned.add(String((r as { player_id: string }).player_id));
+  }
+
   // Live games first: those are the ones somebody is watching right now.
   const rows: PlayerRow[] = [];
   for (const pass of ["live", "recent"] as const) {
@@ -161,7 +175,10 @@ export async function refreshLiveGames(
         // instead of a cut.
         .order("updated_at", { ascending: true })
         .limit(MAX_PLAYERS);
-      for (const r of (data ?? []) as unknown as PlayerRow[]) {
+      // Held and watched listings jump the queue within each pass.
+      const batch = (data ?? []) as unknown as PlayerRow[];
+      batch.sort((a, b) => Number(owned.has(b.id)) - Number(owned.has(a.id)));
+      for (const r of batch) {
         if (rows.length >= MAX_PLAYERS) break;
         if (!rows.some((x) => x.id === r.id)) rows.push(r);
       }
@@ -240,6 +257,26 @@ export async function refreshLiveGames(
     if (!biggest || Math.abs(pct) > Math.abs(biggest.pct)) {
       biggest = { name: row.full_name, from: Number(row.market_price), to: price, pct };
     }
+  }
+
+  // Written so `runAudit` can tell a quiet night from a saturated one without
+  // guessing: a cap that binds every night is the signal that this design has
+  // outgrown per-player fetches and needs box scores instead.
+  try {
+    await db.from("market_meta").upsert({
+      key: "live_refresh_last",
+      value: {
+        ranAt: new Date().toISOString(),
+        activeSports,
+        candidates: rows.length,
+        fetched,
+        repriced,
+        cappedAt: MAX_PLAYERS,
+      },
+      updated_at: new Date().toISOString(),
+    });
+  } catch {
+    // Bookkeeping must never fail the refresh.
   }
 
   return done({

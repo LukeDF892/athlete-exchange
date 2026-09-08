@@ -66,7 +66,8 @@ export async function pushSnapshot(snapshot: Snapshot): Promise<void> {
     opening_fair_value: number;
     liquidity_depth: number;
     market_price: number;
-  }>(db, "players", "external_id, shares_outstanding, opening_fair_value, liquidity_depth, market_price");
+    fair_value: number;
+  }>(db, "players", "external_id, shares_outstanding, opening_fair_value, liquidity_depth, market_price, fair_value");
 
   // A short read here is indistinguishable from a board full of new listings,
   // and the cost of not noticing is everyone's positions. So it is checked
@@ -91,6 +92,7 @@ export async function pushSnapshot(snapshot: Snapshot): Promise<void> {
         opening_fair_value: number;
         liquidity_depth: number;
         market_price: number;
+        fair_value: number;
       },
     ])
   );
@@ -138,6 +140,55 @@ export async function pushSnapshot(snapshot: Snapshot): Promise<void> {
       updated_at: new Date().toISOString(),
     };
   });
+
+  /**
+   * Refuse to write a run that reprices the world.
+   *
+   * A refresh moves fair values by a few percent as stats accumulate. It does
+   * not move most of the board at once — and every incident this project has
+   * had looked exactly like that when measured:
+   *
+   *   * carried-forward deploy-time prices written over measured ones: three
+   *     quarters of the board, ~24% each, three times a day for weeks
+   *   * a one-league calibration written whole: every listing in the other
+   *     three leagues repriced against marks nobody measured
+   *   * a renamed ESPN column: a whole stat reads zero and a league collapses
+   *
+   * None of those raise an error on their own. All of them are obvious as a
+   * distribution. So the shape of the change is checked before it is written,
+   * and a run that fails is abandoned rather than half-applied — yesterday's
+   * prices are wrong by a day, which is recoverable, where a bad write is the
+   * thing that took a morning to unpick.
+   *
+   * INGEST_FORCE=1 overrides, for the deliberate repricing that follows a real
+   * model change.
+   */
+  const compared = rows.filter((r) => prior.has(r.external_id));
+  const bigMoves = compared.filter((r) => {
+    const before = prior.get(r.external_id)!.fair_value;
+    if (!before || before <= 0) return false;
+    return Math.abs(r.fair_value - before) / before > 0.10;
+  });
+  const movedShare = compared.length > 0 ? bigMoves.length / compared.length : 0;
+  if (compared.length >= 50 && movedShare > 0.15 && process.env.INGEST_FORCE !== "1") {
+    const examples = bigMoves
+      .slice(0, 5)
+      .map((r) => {
+        const before = prior.get(r.external_id)!.fair_value;
+        return `${r.full_name} $${before} -> $${r.fair_value}`;
+      })
+      .join("; ");
+    throw new Error(
+      `refusing to push: ${bigMoves.length} of ${compared.length} listings ` +
+        `(${(movedShare * 100).toFixed(0)}%) move more than 10% — ` +
+        `a refresh does not reprice the board. Examples: ${examples}. ` +
+        "Set INGEST_FORCE=1 if this is a deliberate model change."
+    );
+  }
+  console.log(
+    `[supabase] ${bigMoves.length} of ${compared.length} listings move >10% ` +
+      `(${(movedShare * 100).toFixed(1)}%) — within the circuit breaker`
+  );
 
   for (const chunk of chunks(rows, 100)) {
     const { error } = await db.from("players").upsert(chunk, { onConflict: "external_id" });
