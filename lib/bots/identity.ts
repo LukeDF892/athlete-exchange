@@ -52,6 +52,10 @@ export interface BotIdentity {
  * competition meant to reward reading a sport, that is luck wearing a
  * scoreboard.
  *
+ * Sixteen of them, two waking per slot. They are genuinely two-sided: they buy
+ * anything trading below performance value, and sell or short what has run more
+ * than 6% above it, so they are not merely a brake.
+ *
  * What is kept is the one bot behaviour with a job that humans will not do for
  * themselves. The curve mints a share on every buy, so twenty people buying
  * their favourites is one-directional pressure with nothing pushing back, and
@@ -63,7 +67,7 @@ export interface BotIdentity {
  * Momentum and noise are gone: both accumulate, neither corrects, and between
  * them they were the directional noise.
  */
-const ROSTER: Strategy[] = [...Array<Strategy>(8).fill("value")];
+const ROSTER: Strategy[] = [...Array<Strategy>(16).fill("value")];
 
 export function botRoster(): BotIdentity[] {
   return ROSTER.map((strategy, i) => {
@@ -149,13 +153,24 @@ export const SLOT_HOURS = SLOT_TIMES.map((t) => t.hour);
  * occasional. Each still trades in seven or eight of the ninety slots, so no
  * single bot runs out of cash pressing the same listing all day.
  */
+/**
+ * How many bots wake in each of the ninety slots.
+ *
+ * This, not the roster size, is the dial that controls how much the market
+ * moves. Tying the modulus to the roster meant every roster woke the same
+ * ninety times a day and adding bots only spread the same activity across more
+ * accounts — which is the opposite of what "add more bots" is supposed to do.
+ *
+ * Two per slot is about 180 bot decisions a day, against a plausible twenty
+ * humans making perhaps a hundred trades between them. Enough that the tape is
+ * never still, not so much that the bots are the market again.
+ */
+const BOTS_PER_SLOT = 2;
+
 export function botsForSlot(slot: number): BotIdentity[] {
   const roster = botRoster();
-  // Modulus follows the roster size, so exactly one bot wakes per slot however
-  // many there are. Hardcoding twelve was right at fifty bots and wrong at
-  // eight: two thirds of slots woke nobody, which is a market that stops
-  // correcting for twenty minutes at a time and a test that caught it.
-  return roster.filter((b) => (b.index + slot) % roster.length === 0);
+  const stride = Math.max(1, Math.floor(roster.length / BOTS_PER_SLOT));
+  return roster.filter((b) => (b.index + slot) % stride === 0);
 }
 
 /**
