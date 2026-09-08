@@ -445,6 +445,15 @@ export async function runIngest(options: IngestOptions = {}): Promise<IngestResu
   const empty = (["nhl", "nba", "mlb", "nfl"] as const).filter(
     (s) => runs(s) && raws.every((r) => r.sport !== s)
   );
+  /**
+   * Listings this run did not price, only remembered.
+   *
+   * They belong in the snapshot file — that is what a signed-out visitor reads,
+   * and a board missing three leagues is worse than one showing yesterday's
+   * numbers for them. They must never reach the database, which is the mistake
+   * this set exists to prevent: see the push below.
+   */
+  const carriedIds = new Set<string>();
   const missing = [...new Set([...failedSports, ...skipped, ...empty])];
   if (empty.length > 0) {
     console.warn(`[${empty.join(", ")}] returned no players — carrying yesterday's forward`);
@@ -456,6 +465,7 @@ export async function runIngest(options: IngestOptions = {}): Promise<IngestResu
     // the snapshot the first time a scoped run happened.
     const present = new Set(players.map((p) => p.id));
     const carried = (await carryForward(missing)).filter((p) => !present.has(p.id));
+    for (const p of carried) carriedIds.add(p.id);
     if (carried.length > 0) {
       players.push(...carried);
       players.sort((a, b) => b.fairValue - a.fairValue);
@@ -507,14 +517,36 @@ export async function runIngest(options: IngestOptions = {}): Promise<IngestResu
     // looks like a display bug and is really a failed write. Drop them from the
     // push rather than losing the other 3,600 listings over 62.
     const canPushProspects = process.env.PROSPECTS_SUPPORTED !== "false";
-    const pushable = canPushProspects
-      ? snapshot
-      : {
-          ...snapshot,
-          players: snapshot.players.filter((p) => p.kind !== "prospect"),
-        };
+    /**
+     * Never write a listing this run did not actually price.
+     *
+     * A scheduled refresh runs one league and carries the other three forward
+     * from `data/snapshot.json` — which on Vercel is the copy baked into the
+     * deployment, frozen at deploy time. Pushing those carried values wrote a
+     * deploy-time price over a freshly measured one, three times a day, for
+     * three quarters of the board. Every in-season listing therefore
+     * oscillated: measured by its own league's cron, then reset by the next
+     * league's, then reset again. Ohtani ran $278.53 -> $212.01 -> $278.53
+     * daily with nobody trading him, and net worth sawtoothed with it.
+     *
+     * The database never needed the carry-forward in the first place. The push
+     * is an upsert, so a league left out simply keeps the rows it already has;
+     * it was the snapshot *file* that needed carrying, because that is a full
+     * overwrite.
+     */
+    const priced = snapshot.players.filter((p) => !carriedIds.has(p.id));
+    const pushable = {
+      ...snapshot,
+      players: canPushProspects ? priced : priced.filter((p) => p.kind !== "prospect"),
+    };
+    if (carriedIds.size > 0) {
+      console.log(
+        `[supabase] pushing ${pushable.players.length} priced listings; ` +
+          `${carriedIds.size} carried-forward listings stay as they are`
+      );
+    }
     if (!canPushProspects) {
-      const held = snapshot.players.length - pushable.players.length;
+      const held = priced.length - pushable.players.length;
       console.log(`[supabase] holding back ${held} prospects until migration 0009 runs`);
     }
     const { pushSnapshot } = await import("@/scripts/push-supabase");
