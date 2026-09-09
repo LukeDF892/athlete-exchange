@@ -1,8 +1,6 @@
 "use client";
 
-import Link from "next/link";
 import { timeAgo } from "@/lib/format";
-import { isBotUsername } from "@/lib/bots/identity";
 import type { TapeEntry } from "@/lib/market/tape-row";
 import { useLiveTape } from "@/components/useLiveTape";
 
@@ -58,19 +56,19 @@ export function PlayerTape({
             </span>
             <span className="tnum shrink-0 text-ink-200">{t.shares.toLocaleString()}</span>
             <span className="flex min-w-0 flex-1 items-center gap-1.5">
-              {isBotUsername(t.username) ? (
-                <Link
-                  href={`/trader/${encodeURIComponent(t.username)}`}
-                  className="truncate text-xs text-ink-400 underline-offset-2 hover:text-ink-200 hover:underline"
-                >
-                  {t.username}
-                </Link>
+              {t.isBot ? (
+                /* Automated trades are shown, but not itemised by which bot.
+                   Sixteen rows of bot_value_7 made the tape read as a robot
+                   convention; hiding them entirely would have been worse, since
+                   a price that moves above an empty activity panel is the exact
+                   complaint the tape exists to answer. */
+                <span className="truncate text-xs text-ink-500">Market maker</span>
               ) : (
                 <span className="truncate text-xs text-ink-400">{t.username}</span>
               )}
               {t.isBot && (
-                <span className="rounded bg-ink-700 px-1 py-0.5 text-[9px] font-bold uppercase text-ink-300">
-                  bot
+                <span className="rounded bg-ink-800 px-1 py-0.5 text-[9px] font-bold uppercase text-ink-500">
+                  auto
                 </span>
               )}
             </span>

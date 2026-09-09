@@ -48,10 +48,14 @@ export function TradeTape({ entries: initial }: { entries: TapeEntry[] }) {
               <div className="truncate text-sm font-medium text-ink-50">{t.playerName}</div>
 
               <div className="flex items-center gap-1.5 text-[11px] text-ink-400">
-                <span className="truncate">{t.username}</span>
+                {/* Same treatment as the per-player tape: visible, labelled,
+                    not itemised by which bot. */}
+                <span className={`truncate ${t.isBot ? "text-ink-500" : ""}`}>
+                  {t.isBot ? "Market maker" : t.username}
+                </span>
                 {t.isBot && (
-                  <span className="rounded bg-ink-700 px-1 py-0.5 text-[9px] font-bold uppercase text-ink-300">
-                    bot
+                  <span className="rounded bg-ink-800 px-1 py-0.5 text-[9px] font-bold uppercase text-ink-500">
+                    auto
                   </span>
                 )}
                 <span className="ml-auto uppercase text-ink-500">{t.sport}</span>
