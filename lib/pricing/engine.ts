@@ -654,12 +654,19 @@ export interface QuoteResult {
 /**
  * Most of one athlete a single account may hold, as a share of liquidity depth.
  *
- * Must match v_max_share in execute_trade(). A share of depth rather than a
- * share count or a dollar amount, because depth is what determines price
- * impact: at 20% one holder can move a price by at most about 22%, whatever
- * the athlete costs. Without it, $100,000 turns a $5 listing into a $171 one.
+ * Must match v_max_share in execute_trade() (migration 0021). A share of depth
+ * rather than a share count or a dollar amount, because depth is what
+ * determines price impact. Without any cap, $100,000 turns a $5 listing into a
+ * $171 one.
+ *
+ * Lowered from 20% to 8% for a competition with twenty or more traders. The cap
+ * binds one account, not a crowd, and that distinction is the whole reason it
+ * moved: at 20% a single holder shifts a price about 22%, but twenty holders
+ * each taking their full share is S = 4L, which e^(S/L) turns into roughly 54x.
+ * At 8% the same twenty reach about 5x — still a big move, which is correct,
+ * because a crowd agreeing is what a market is for.
  */
-export const MAX_POSITION_SHARE = 0.2;
+export const MAX_POSITION_SHARE = 0.08;
 
 /** Largest position one account may hold in a given listing. */
 export function positionLimit(liquidityDepth: number): number {

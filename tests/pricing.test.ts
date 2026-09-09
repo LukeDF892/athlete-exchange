@@ -12,6 +12,7 @@ import {
   TRADE_FEE_RATE,
   positionLimit,
   positionValue,
+  MAX_POSITION_SHARE,
   dampenFairValue,
   DEFAULT_CALIBRATION,
   type StatLine,
@@ -503,7 +504,9 @@ test("position limits bound how far one trader can move a price", () => {
   const depth = 600;
   const cap = positionLimit(depth);
 
-  assert.equal(cap, 120, "cap should be 20% of depth");
+  // Derived rather than hardcoded: the share is a tuning decision (20% for
+  // three traders, 8% for twenty), the property being tested is not.
+  assert.equal(cap, Math.floor(depth * MAX_POSITION_SHARE), "cap should be the configured share of depth");
 
   // At the cap, price impact stays modest whatever the athlete costs.
   const atCap = quoteBuy(fair, 0, cap, depth);
@@ -602,4 +605,26 @@ test("a capped listing still converges on the model within a fortnight", () => {
   }
   assert.ok(days <= 12, `should converge in under a fortnight, took ${days}`);
   assert.ok(Math.abs(value - target) < 0.02, "and land on the model's answer");
+});
+
+/**
+ * The position cap binds one account, and the crowd is what it does not bind.
+ *
+ * Sized for three traders at 20%, it allowed twenty maxed accounts to reach
+ * S = 4L — about a 54x repricing — which is not a market moving, it is a
+ * listing detaching. These pin both the per-account impact and the crowd
+ * arithmetic that actually forced the change.
+ */
+test("one account moves a price by single digits, a crowd of twenty by about 5x", () => {
+  const fair = 50;
+  const depth = 2250;
+  const limit = positionLimit(depth);
+
+  assert.equal(limit, Math.floor(depth * 0.08), "cap is 8% of depth");
+
+  const one = marketPrice(fair, limit, depth) / fair;
+  assert.ok(one < 1.09, `one maxed account should move price under 9%, got ${one.toFixed(3)}x`);
+
+  const twenty = marketPrice(fair, limit * 20, depth) / fair;
+  assert.ok(twenty > 4 && twenty < 6, `twenty maxed accounts should land near 5x, got ${twenty.toFixed(2)}x`);
 });
